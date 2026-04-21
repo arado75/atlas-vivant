@@ -1,0 +1,924 @@
+# Atlas Vivant — Dossier de conception pour Codex
+
+## 1. Vision
+
+**Atlas Vivant** est une infrastructure logicielle d’observation, de visualisation, de corrélation et de découverte des dynamiques du système Terre et des sociétés humaines.
+
+Ce n’est **pas** une simple carte.
+
+Ce n’est **pas** non plus seulement un tableau de bord de données.
+
+C’est un **instrument cognitif** permettant :
+
+* d’observer le monde comme un système vivant,
+* de suivre des flux et des causalités,
+* de naviguer entre macro et micro,
+* de distinguer observation, corrélation et causalité,
+* de détecter des motifs inattendus,
+* d’intégrer progressivement de nouvelles “briques” de connaissance,
+* de servir à la fois de support contemplatif, scientifique, pédagogique et opérationnel.
+
+L’idée centrale est la suivante :
+
+> **Le monde n’est pas une somme d’objets statiques, mais un réseau dynamique de flux, de transformations et d’influences.**
+
+Atlas Vivant doit rendre cela visible.
+
+---
+
+## 2. Finalité profonde
+
+Atlas Vivant vise cinq finalités majeures.
+
+### 2.1 Observation
+
+Voir le monde en temps réel ou quasi temps réel.
+
+### 2.2 Compréhension
+
+Relier les phénomènes entre eux, et non seulement les afficher.
+
+### 2.3 Exploration
+
+Permettre à l’observateur de naviguer librement entre :
+
+* la vue globale,
+* la vue locale,
+* les causes,
+* les conséquences,
+* les couches thématiques,
+* les échelles de temps.
+
+### 2.4 Découverte
+
+Faire émerger des corrélations, signatures, motifs et anomalies encore insoupçonnés.
+
+### 2.5 Utilité
+
+Aider à la pédagogie, à la vigilance, à la recherche et, plus tard, à certaines formes d’alerte raisonnée.
+
+---
+
+## 3. Principe épistémologique fondamental
+
+Atlas Vivant ne doit **jamais** se comporter comme un système dogmatique.
+
+Il doit être construit sur une hiérarchie de confiance.
+
+### 3.1 Ce que le système doit distinguer explicitement
+
+* **Observation** : un phénomène mesuré ou rapporté.
+* **Concomitance** : deux phénomènes apparaissent ensemble.
+* **Corrélation** : relation statistique récurrente.
+* **Causalité probable** : hypothèse mécanistique plausible.
+* **Causalité robuste** : relation solidement établie.
+
+### 3.2 Règle cardinale
+
+> **Le système ne produit pas des certitudes absolues, mais des niveaux de confiance.**
+
+### 3.3 Conséquence UX
+
+Toute relation affichée doit indiquer :
+
+* son statut,
+* son niveau de confiance,
+* ses sources,
+* son éventuel délai de propagation,
+* ses facteurs confondants possibles.
+
+---
+
+## 4. Colonne vertébrale du système
+
+L’architecture doit être organisée autour d’un **noyau physique**, puis de couches dérivées.
+
+### 4.1 Noyau énergétique et cosmique
+
+* rayonnement solaire,
+* cycle jour/nuit,
+* saisons,
+* activité solaire,
+* Lune et marées,
+* chaleur interne terrestre,
+* gravité,
+* rotation terrestre,
+* éventuellement couches cosmiques lentes (héliosphère, rayons cosmiques, etc.).
+
+### 4.2 Noyau géophysique et atmosphérique
+
+* température,
+* pression,
+* humidité,
+* vents,
+* circulation atmosphérique,
+* courants océaniques,
+* salinité,
+* niveau de mer,
+* champ magnétique,
+* position des pôles,
+* sismicité,
+* volcanisme,
+* tectonique.
+
+### 4.3 Noyau chimique
+
+* CO₂,
+* CH₄,
+* ozone,
+* aérosols,
+* qualité de l’air,
+* acidification,
+* cycles carbone/azote/phosphore.
+
+### 4.4 Biosphère
+
+* phytoplancton,
+* krill,
+* poissons,
+* migrations animales,
+* couverture végétale,
+* biodiversité,
+* pollens,
+* dynamique des écosystèmes.
+
+### 4.5 Activités humaines
+
+* agriculture,
+* pêche,
+* transport maritime,
+* aviation,
+* mobilité,
+* bruit,
+* énergie,
+* urbanisation,
+* consommation.
+
+### 4.6 Société et qualité de vie
+
+* espérance de vie,
+* espérance de vie en bonne santé,
+* bien-être subjectif,
+* santé publique,
+* accès aux soins,
+* éducation,
+* recherche,
+* production de savoir,
+* créativité,
+* signaux d’obscurantisme / ouverture intellectuelle.
+
+---
+
+## 5. Grande idée structurante : les briques
+
+Atlas Vivant doit être **modulaire**.
+
+Chaque domaine est une **brique**.
+
+### 5.1 Définition d’une brique
+
+Une brique est une unité logicielle et sémantique contenant :
+
+* un nom,
+* une description,
+* un domaine,
+* une ou plusieurs sources de données,
+* une logique d’ingestion,
+* une logique de nettoyage,
+* une logique de visualisation,
+* une logique de relation aux autres briques,
+* un niveau de maturité,
+* un niveau de confiance,
+* des métadonnées épistémologiques.
+
+### 5.2 Types de briques
+
+#### A. Briques noyau
+
+Partie du système fondamental. Ex. température globale, vents, CO₂, courants marins.
+
+#### B. Briques validées
+
+Briques robustes, intégrées au système global après validation.
+
+#### C. Briques expérimentales
+
+Briques en phase de test, accessibles dans un laboratoire ou une zone expérimentale.
+
+#### D. Briques personnelles
+
+Ajoutées par un utilisateur pour son usage local ou privé.
+
+#### E. Briques communautaires
+
+Partagées par plusieurs utilisateurs ou communautés, en cours de montée en qualité.
+
+### 5.3 Cycle de vie d’une brique
+
+1. proposition,
+2. analyse,
+3. expérimentation,
+4. calibration,
+5. validation,
+6. intégration,
+7. surveillance continue.
+
+---
+
+## 6. Rôle d’Orion (IA éditoriale et scientifique)
+
+Dans Atlas Vivant, **Orion** est l’intelligence qui assiste l’écosystème.
+
+### 6.1 Rôles principaux d’Orion
+
+* analyser les nouvelles briques,
+* détecter redondances et incohérences,
+* proposer des connexions avec le graphe global,
+* identifier les biais,
+* suggérer des variables manquantes,
+* classer les relations selon leur niveau de confiance,
+* faire émerger des motifs,
+* proposer de nouvelles briques,
+* expliquer les limites,
+* aider à la formulation scientifique des hypothèses,
+* produire des résumés et récits intelligibles.
+
+### 6.2 Règle de gouvernance
+
+Orion ne doit **jamais** être une autorité absolue.
+
+Toute proposition importante doit être :
+
+* traçable,
+* contestable,
+* expliquée,
+* documentée,
+* révisable.
+
+### 6.3 Doctrine d’Orion
+
+> **Rien n’entre dans le noyau sans avoir traversé l’épreuve du réel.**
+
+---
+
+## 7. Logique de découverte
+
+C’est probablement la plus grande valeur d’Atlas Vivant.
+
+### 7.1 Finalité
+
+Découvrir l’insoupçonné.
+
+### 7.2 Mécanisme
+
+Le système croise :
+
+* données capteurs,
+* flux temporels,
+* géographie,
+* événements du monde,
+* nouvelles,
+* statistiques,
+* briques utilisateur.
+
+Puis il cherche :
+
+* motifs récurrents,
+* corrélations improbables,
+* signatures émergentes,
+* anomalies persistantes,
+* délais récurrents entre cause probable et effet probable.
+
+### 7.3 Statuts d’une découverte émergente
+
+* bruit,
+* anomalie,
+* motif émergent,
+* signature potentielle,
+* relation plausible,
+* relation testable,
+* relation robuste.
+
+### 7.4 Principe méthodologique
+
+Plus une relation semble surprenante, plus les exigences de validation doivent être élevées.
+
+---
+
+## 8. Moteur de causalité
+
+Atlas Vivant doit être conçu comme un **graphe d’influences pondéré**.
+
+### 8.1 Nœuds
+
+Phénomènes, variables, événements, indicateurs.
+
+### 8.2 Arêtes
+
+Relations d’influence avec :
+
+* poids,
+* délai,
+* signe (positif/négatif),
+* confiance,
+* statut (corrélation / causalité),
+* contexte.
+
+### 8.3 Deux modes centraux
+
+#### Mode Racine
+
+Remonter des conséquences vers les causes.
+
+Exemple :
+prix poisson → pêche → abondance sardines → krill → plancton → température de l’océan → vents → énergie solaire.
+
+#### Mode Arbre
+
+Descendre d’une cause vers les conséquences.
+
+Exemple :
+réchauffement de l’océan → krill → poissons → pêche → prix alimentaire → tourisme → flux humains.
+
+### 8.4 Vue anti-tunneling
+
+Le système doit éviter l’effet tunnel.
+
+Il doit permettre :
+
+* focus profond,
+* contexte conservé,
+* vue large permanente,
+* expansion fractale,
+* macro + micro simultanés.
+
+---
+
+## 9. Interface et expérience utilisateur
+
+Atlas Vivant doit être à la fois :
+
+* beau,
+* lisible,
+* profond,
+* calme,
+* rigoureux.
+
+### 9.1 Ambition esthétique
+
+L’interface ne doit pas ressembler à un dashboard agressif. Elle doit évoquer :
+
+* un instrument scientifique,
+* un planétarium,
+* un observatoire,
+* un organisme vivant.
+
+### 9.2 Principes UX
+
+* fond sombre,
+* flux lumineux élégants,
+* pas de surcharge,
+* intensité hiérarchisée,
+* temps fluide,
+* possibilité de contemplation sans interface.
+
+### 9.3 Modes de navigation principaux
+
+* mode contemplation,
+* mode scientifique,
+* mode racine,
+* mode arbre,
+* mode exploration,
+* mode alertes,
+* mode laboratoire,
+* mode historique,
+* mode découverte.
+
+### 9.4 Réglages essentiels
+
+* couches visibles,
+* profondeur,
+* largeur,
+* contexte conservé,
+* échelle spatiale,
+* échelle temporelle,
+* mémoire des traces,
+* intensité visuelle,
+* seuil d’incertitude,
+* seuil de confiance,
+* nombre de branches affichées,
+* type de trace,
+* vitesse du temps.
+
+---
+
+## 10. Traces et mémoire temporelle
+
+Un phénomène en mouvement doit pouvoir laisser une mémoire visuelle.
+
+### 10.1 Cas d’usage
+
+* avions,
+* navires,
+* baleines,
+* oiseaux,
+* tempêtes,
+* flux économiques,
+* vagues de chaleur,
+* incendies.
+
+### 10.2 Paramètres de trace
+
+* durée,
+* mode de disparition,
+* épaisseur,
+* diffusion,
+* granularité.
+
+### 10.3 Comparaison temporelle
+
+L’utilisateur doit pouvoir activer des comparaisons :
+
+* année N vs N-1,
+* saison vs saison,
+* période personnalisée.
+
+Objectif : faire émerger les différences structurelles.
+
+---
+
+## 11. Mode alerte
+
+Atlas Vivant peut, à terme, intégrer une couche d’alerte prudente.
+
+### 11.1 Types d’alertes possibles
+
+* météo sévère,
+* incendies,
+* inondations,
+* qualité de l’air,
+* séismes,
+* éruptions,
+* événements sanitaires,
+* phénomènes environnementaux locaux.
+
+### 11.2 Règle stricte
+
+Les alertes critiques doivent distinguer :
+
+* observation,
+* suspicion,
+* confirmation,
+* source institutionnelle,
+* source expérimentale.
+
+### 11.3 Alerte locale / globale
+
+* Alerte liée à la position de l’utilisateur,
+* Alerte mondiale sur grands événements.
+
+---
+
+## 12. Capteurs distribués
+
+Atlas Vivant doit être pensé comme un système capable d’agréger :
+
+* capteurs scientifiques dédiés,
+* satellites,
+* réseaux institutionnels,
+* capteurs urbains,
+* objets connectés,
+* smartphones volontaires,
+* observations humaines.
+
+### 12.1 Position rigoureuse
+
+Les smartphones sont utiles pour certains cas, pas pour tous.
+
+Ils doivent être considérés comme :
+
+* capteurs opportunistes,
+* denses,
+* faibles individuellement,
+* potentiellement puissants collectivement.
+
+### 12.2 Approche recommandée
+
+Toute nouvelle capacité issue de capteurs faibles doit passer par :
+
+1. exploration,
+2. corrélation,
+3. calibration,
+4. validation,
+5. intégration progressive.
+
+---
+
+## 13. Données événementielles et apprentissage par le monde réel
+
+Le système doit pouvoir lire des événements issus de :
+
+* bases publiques,
+* actualités,
+* signaux institutionnels,
+* signalements,
+* journaux spécialisés,
+* bases scientifiques.
+
+Puis il doit vérifier si des capteurs ou variables ont réagi :
+
+* au même moment,
+* dans le même lieu,
+* avant,
+* pendant,
+* après.
+
+Ceci permet d’utiliser les événements comme **étiquettes d’apprentissage**.
+
+---
+
+## 14. Indicateurs humains avancés
+
+### 14.1 Espérance de vie en bonne santé
+
+Brique fondatrice. Permet de relier environnement, société, urbanisme, médecine, alimentation.
+
+### 14.2 Bien-être / bonheur
+
+À traiter comme un indicateur composite et culturellement sensible.
+
+### 14.3 Développement de la connaissance
+
+Mesurer non seulement l’éducation, mais aussi les conditions favorables au développement intellectuel, scientifique et créatif.
+
+### 14.4 Principe de prudence
+
+Pour ces briques, toujours distinguer :
+
+* conditions objectives,
+* perception subjective,
+* contexte culturel.
+
+---
+
+## 15. Gouvernance et éthique
+
+Question critique.
+
+### 15.1 Ce qu’Atlas Vivant ne doit pas devenir
+
+* un outil opaque,
+* un système de surveillance total,
+* une boîte noire dogmatique,
+* un producteur de pseudo-causalités,
+* un instrument manipulé politiquement.
+
+### 15.2 Principes de gouvernance recommandés
+
+* transparence des sources,
+* séparation des niveaux de certitude,
+* journalisation des décisions algorithmiques,
+* auditabilité,
+* versionnage des modèles,
+* consentement explicite pour données personnelles,
+* anonymisation forte,
+* espaces publics / privés bien séparés.
+
+### 15.3 Gardien idéal
+
+Le système devrait être gouverné par une structure hybride :
+
+* fondation,
+* consortium scientifique,
+* supervision publique,
+* contributions ouvertes,
+* audit indépendant.
+
+---
+
+## 16. Positionnement stratégique
+
+Atlas Vivant ne doit pas être pensé comme un clone de Google Earth.
+
+### 16.1 Ce qu’il n’est pas
+
+* pas une simple globe app,
+* pas un simple tableau météo,
+* pas un simple réseau social de capteurs,
+* pas un simple SIEM géospatial.
+
+### 16.2 Ce qu’il est
+
+* un instrument de perception systémique,
+* un graphe vivant du monde,
+* un laboratoire de corrélations et de causalités,
+* un support visuel de compréhension,
+* un moteur de découverte.
+
+---
+
+## 17. Architecture produit recommandée
+
+### 17.1 Phase 1 — Prototype fondateur
+
+Objectif : rendre visible le concept.
+
+Fonctions minimales :
+
+* globe ou carte sombre interactive,
+* couches physiques de base,
+* traces temporelles,
+* comparaison temporelle,
+* mode racine simple,
+* mode arbre simple,
+* moteur de briques basique,
+* fiche de confiance par relation.
+
+### 17.2 Phase 2 — Laboratoire expérimental
+
+* ajout de briques utilisateur,
+* espace expérimental,
+* ingestion de nouvelles briques,
+* scoring de maturité,
+* premières détections de motifs émergents,
+* proposition de briques par Orion.
+
+### 17.3 Phase 3 — Plateforme de découverte
+
+* moteur de corrélations surprenantes,
+* exploration de facteurs confondants,
+* navigation multi-échelles complète,
+* premiers modules d’alerte raisonnée,
+* API pour chercheurs.
+
+### 17.4 Phase 4 — Infrastructure ouverte
+
+* gouvernance publique/scientifique,
+* contributions tierces,
+* kit de briques,
+* partage de briques,
+* validation communautaire/scientifique,
+* clients desktop/web/mobile.
+
+---
+
+## 18. MVP recommandé pour Codex
+
+### 18.1 But du MVP
+
+Prouver la vision sans essayer de tout construire.
+
+### 18.2 Périmètre MVP
+
+Construire une application web locale ou déployable avec :
+
+#### A. Vue principale
+
+* globe 3D ou carte 2D/2.5D sombre,
+* visualisation élégante des flux,
+* panneau de couches.
+
+#### B. Couches initiales
+
+1. vents,
+2. température de surface,
+3. courants marins,
+4. CO₂ / qualité air simplifiée,
+5. routes aériennes,
+6. routes maritimes,
+7. une couche biologique simple (ex. migrations ou plancton simulé),
+8. espérance de vie en bonne santé par pays/région si disponible.
+
+#### C. Mécanismes de base
+
+* traces,
+* mémoire temporelle,
+* comparaison annuelle,
+* mode racine et mode arbre sur un petit graphe,
+* fiches relationnelles,
+* notion explicite de confiance.
+
+#### D. Briques
+
+* format JSON/YAML de brique,
+* chargeur de briques,
+* registre local,
+* statut : noyau / validée / expérimentale / personnelle.
+
+#### E. Orion minimal
+
+* interface de proposition de brique,
+* analyse textuelle simple,
+* recommandations de connexions,
+* avertissements sur manque de sources / faible confiance.
+
+---
+
+## 19. Stack technique suggérée pour le MVP
+
+### Frontend
+
+* React / Next.js,
+* TypeScript,
+* Zustand ou Redux Toolkit,
+* Tailwind,
+* deck.gl / MapLibre / CesiumJS selon l’orientation carte/globe,
+* D3 pour graphes causaux.
+
+### Backend
+
+* Python FastAPI ou Node/NestJS,
+* moteur d’ingestion modulaire,
+* scheduler pour rafraîchissements,
+* services de transformation.
+
+### Données
+
+* PostgreSQL + PostGIS,
+* cache Redis,
+* éventuel moteur time-series selon besoin.
+
+### IA / moteur d’analyse
+
+* couche séparée pour Orion,
+* pipeline de scoring,
+* système de classification des relations,
+* moteur de suggestion de briques.
+
+### Format de brique
+
+JSON/YAML versionné avec schéma strict.
+
+---
+
+## 20. Schéma conceptuel d’une brique
+
+```yaml
+id: krill_density
+name: Densité de krill
+version: 0.1.0
+domain: biosphere
+status: experimental
+description: Estimation spatiale et temporelle de la densité de krill.
+sources:
+  - type: dataset
+    name: Example Source
+    reliability: medium
+update_frequency: weekly
+spatial_resolution: regional
+temporal_resolution: weekly
+observables:
+  - density
+relations:
+  upstream:
+    - node: ocean_temperature
+      type: probable_causality
+      confidence: 0.62
+    - node: phytoplankton
+      type: probable_causality
+      confidence: 0.71
+  downstream:
+    - node: whale_migration
+      type: correlation
+      confidence: 0.54
+visualization:
+  mode: heatmap
+  color_scale: violet
+maturity:
+  stage: calibration
+notes:
+  - Forte sensibilité aux variations de données source
+  - Besoin de validation régionale
+```
+
+---
+
+## 21. Règles de design à respecter par Codex
+
+1. **Lisibilité avant exhaustivité.**
+2. **Toujours rendre visible l’incertitude.**
+3. **Aucune causalité affirmée sans statut explicite.**
+4. **Conserver le contexte lors des zooms causaux.**
+5. **Permettre une navigation macro + micro.**
+6. **Rendre le système beau et calme, pas agressif.**
+7. **Prévoir l’extension modulaire dès le départ.**
+8. **Ne pas enfermer le système dans un seul type de données.**
+9. **Versionner les briques et les modèles.**
+10. **Penser Atlas Vivant comme un instrument, pas comme un dashboard classique.**
+
+---
+
+## 22. Prompt de travail à soumettre à Codex
+
+### Prompt principal
+
+Tu vas concevoir le MVP d’un produit nommé **Atlas Vivant**.
+
+Atlas Vivant est une application web de visualisation systémique de la planète. Elle doit permettre d’observer des flux physiques, biologiques et humains, d’afficher des traces temporelles, de comparer des périodes, de naviguer entre causes et conséquences, et d’intégrer un système modulaire de “briques” de connaissance.
+
+Le MVP ne doit pas essayer de tout faire, mais doit rendre la vision crédible et élégante.
+
+#### Objectifs prioritaires
+
+1. Créer une interface web sombre, belle, calme et lisible.
+2. Afficher un globe ou une carte principale avec plusieurs couches activables.
+3. Permettre des traces temporelles avec durée réglable.
+4. Implémenter un graphe causal simple avec deux modes :
+
+   * mode racine (remonter vers les causes),
+   * mode arbre (descendre vers les conséquences).
+5. Rendre explicite le niveau de confiance des relations.
+6. Implémenter un système de briques (JSON/YAML) chargeables dynamiquement.
+7. Créer une première interface “Orion” permettant de proposer une nouvelle brique et d’obtenir une analyse automatique simple.
+
+#### Contraintes de conception
+
+* L’application doit éviter la surcharge visuelle.
+* Toute relation doit avoir un statut : observation / corrélation / causalité probable / causalité robuste.
+* L’interface doit permettre de conserver le contexte global tout en explorant une branche causale en profondeur.
+* Le système doit être pensé comme extensible.
+* Il faut privilégier une architecture propre, modulaire, documentée.
+
+#### Couches initiales recommandées
+
+* vents,
+* température,
+* courants marins,
+* aviation,
+* navigation maritime,
+* une couche biosphère simple,
+* espérance de vie en bonne santé (si jeu de données facilement intégrable).
+
+#### Livrables attendus
+
+* architecture technique,
+* structure des dossiers,
+* composants principaux,
+* schéma de données,
+* moteur de chargement de briques,
+* interface de carte/globe,
+* interface du graphe causal,
+* panneau de configuration,
+* documentation du format de brique,
+* documentation d’installation et de lancement.
+
+#### Ambition esthétique
+
+L’application doit évoquer un mélange de :
+
+* planétarium,
+* instrument scientifique,
+* organisme vivant,
+* atlas du futur.
+
+Pas d’aspect “dashboard entreprise” banal.
+
+#### Ambition conceptuelle
+
+Le produit doit donner le sentiment qu’on n’observe pas simplement des données, mais **un monde en train de vivre**.
+
+---
+
+## 23. Prompt complémentaire pour l’interface Orion
+
+Conçois un module appelé **Orion** dans Atlas Vivant.
+
+Orion est une interface d’assistance intellectuelle qui permet :
+
+* de proposer une nouvelle brique,
+* d’analyser sa pertinence,
+* de suggérer ses relations avec les briques existantes,
+* d’indiquer les biais ou manques éventuels,
+* de classer sa maturité,
+* de recommander si elle doit rester personnelle, expérimentale ou être proposée au système global.
+
+Le module Orion doit être clair, élégant, non anthropomorphique excessif, et rigoureux dans sa manière de présenter l’incertitude.
+
+---
+
+## 24. Conclusion
+
+Atlas Vivant n’est pas une application de plus.
+
+C’est la tentative de construire un **instrument planétaire** capable de :
+
+* rendre visibles les flux,
+* relier les phénomènes,
+* intégrer des briques de savoir,
+* distinguer réel, probable et hypothétique,
+* et peut-être, à terme, découvrir l’insoupçonné.
+
+Sa réussite dépendra moins de la quantité brute de données que de quatre qualités :
+
+* **lisibilité**,
+* **rigueur**,
+* **modularité**,
+* **capacité à faire émerger du sens.**
+
+Si ce produit est bien conçu, il peut devenir :
+
+* un atlas,
+* un laboratoire,
+* un observatoire,
+* un système de découverte,
+* et peut-être une nouvelle manière de regarder la Terre.

@@ -1,0 +1,43 @@
+﻿{
+  "id": "ocean_currents",
+  "name": "Courants marins",
+  "version": "0.1.0",
+  "domain": "ocean",
+  "status": "core",
+  "description": "Representation simulee des grands courants marins et de leur inertie.",
+  "sources": [
+    {
+      "type": "dataset",
+      "name": "Simulated ocean circulation field",
+      "reliability": "medium"
+    }
+  ],
+  "update_frequency": "daily",
+  "spatial_resolution": "global",
+  "temporal_resolution": "monthly",
+  "observables": ["speed", "direction", "anomaly"],
+  "relations": {
+    "upstream": [
+      {
+        "node": "wind_patterns",
+        "type": "probable_causality",
+        "confidence": 0.76
+      }
+    ],
+    "downstream": [
+      {
+        "node": "biosphere_migrations",
+        "type": "probable_causality",
+        "confidence": 0.62
+      }
+    ]
+  },
+  "visualization": {
+    "mode": "flow-lines",
+    "color_scale": "teal"
+  },
+  "maturity": {
+    "stage": "integration"
+  },
+  "notes": ["Structure prete a etre reliee a un backend de donnees reelles."]
+}

@@ -1,0 +1,38 @@
+﻿id: biosphere_migrations
+name: Migrations biologiques
+version: 0.1.0
+domain: biosphere
+status: experimental
+description: Trajectoires biologiques simulees pour explorer l'articulation entre physique et vivant.
+sources:
+  - type: dataset
+    name: Simulated biosphere migration patterns
+    reliability: low
+  - type: reference
+    name: Example ecology note
+    reliability: medium
+update_frequency: weekly
+spatial_resolution: regional
+temporal_resolution: monthly
+observables:
+  - path_position
+  - migration_window
+relations:
+  upstream:
+    - node: surface_temperature
+      type: correlation
+      confidence: 0.58
+    - node: ocean_currents
+      type: probable_causality
+      confidence: 0.62
+  downstream:
+    - node: healthy_life_expectancy
+      type: correlation
+      confidence: 0.37
+visualization:
+  mode: living-tracks
+  color_scale: green
+maturity:
+  stage: experimentation
+notes:
+  - A presenter comme hypothese visuelle plutot que modele stabilise.

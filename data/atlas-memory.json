@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "run": 2,
+  "data": {
+    "collect_more_data": {
+      "weight": 2,
+      "priority": "medium",
+      "message": "Collecter davantage de donnees avant interpretation forte.",
+      "lastSeenRun": 2,
+      "occurrences": 2
+    }
+  }
+}

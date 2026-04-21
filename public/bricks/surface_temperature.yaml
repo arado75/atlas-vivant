@@ -1,0 +1,38 @@
+﻿id: surface_temperature
+name: Temperature de surface
+version: 0.1.0
+domain: climate
+status: core
+description: Nappes thermiques de surface simulant gradients saisonniers et anomalies visibles.
+sources:
+  - type: dataset
+    name: Simulated thermal field
+    reliability: medium
+update_frequency: daily
+spatial_resolution: planetary
+temporal_resolution: monthly
+observables:
+  - anomaly
+  - heat_index
+relations:
+  upstream:
+    - node: wind_patterns
+      type: probable_causality
+      confidence: 0.69
+    - node: solar_radiation
+      type: robust_causality
+      confidence: 0.88
+  downstream:
+    - node: biosphere_migrations
+      type: correlation
+      confidence: 0.58
+    - node: healthy_life_expectancy
+      type: correlation
+      confidence: 0.44
+visualization:
+  mode: heat-halo
+  color_scale: amber
+maturity:
+  stage: integration
+notes:
+  - La couche rend visible l'incertitude via l'intensite, pas via une affirmation causale.

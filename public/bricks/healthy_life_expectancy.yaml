@@ -1,0 +1,31 @@
+﻿id: healthy_life_expectancy
+name: Esperance de vie en bonne sante
+version: 0.1.0
+domain: society
+status: experimental
+description: Indicateur humain avance represente ici sous forme de pulses regionaux simules.
+sources:
+  - type: dataset
+    name: Simulated health expectancy index
+    reliability: medium
+update_frequency: yearly
+spatial_resolution: regional
+temporal_resolution: yearly
+observables:
+  - healthy_life_years
+relations:
+  upstream:
+    - node: surface_temperature
+      type: correlation
+      confidence: 0.44
+    - node: biosphere_migrations
+      type: observation
+      confidence: 0.37
+  downstream: []
+visualization:
+  mode: regional-pulses
+  color_scale: lilac
+maturity:
+  stage: analysis
+notes:
+  - Dans le MVP, cette brique montre surtout la capacite a meler physique et humain.

@@ -1,0 +1,43 @@
+﻿{
+  "id": "maritime_routes",
+  "name": "Routes maritimes",
+  "version": "0.1.0",
+  "domain": "human_mobility",
+  "status": "validated",
+  "description": "Routes maritimes simulees pour illustrer les traces persistantes.",
+  "sources": [
+    {
+      "type": "dataset",
+      "name": "Simulated maritime AIS layer",
+      "reliability": "medium"
+    }
+  ],
+  "update_frequency": "hourly",
+  "spatial_resolution": "transcontinental",
+  "temporal_resolution": "monthly",
+  "observables": ["ship_position", "route_density"],
+  "relations": {
+    "upstream": [
+      {
+        "node": "ocean_currents",
+        "type": "correlation",
+        "confidence": 0.48
+      }
+    ],
+    "downstream": [
+      {
+        "node": "healthy_life_expectancy",
+        "type": "observation",
+        "confidence": 0.24
+      }
+    ]
+  },
+  "visualization": {
+    "mode": "temporal-tracks",
+    "color_scale": "cyan"
+  },
+  "maturity": {
+    "stage": "validation"
+  },
+  "notes": ["Brique demonstrative pour le moteur de traces temporelles."]
+}

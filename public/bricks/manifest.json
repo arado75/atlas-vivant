@@ -1,0 +1,11 @@
+﻿{
+  "bricks": [
+    "/bricks/wind_patterns.yaml",
+    "/bricks/surface_temperature.yaml",
+    "/bricks/ocean_currents.json",
+    "/bricks/aviation_routes.yaml",
+    "/bricks/maritime_routes.json",
+    "/bricks/biosphere_migrations.yaml",
+    "/bricks/healthy_life_expectancy.yaml"
+  ]
+}

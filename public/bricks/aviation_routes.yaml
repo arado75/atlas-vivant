@@ -1,0 +1,32 @@
+﻿id: aviation_routes
+name: Routes aeriennes
+version: 0.1.0
+domain: human_mobility
+status: validated
+description: Couloirs aeronautiques simules avec traces et comparaison annuelle.
+sources:
+  - type: dataset
+    name: Simulated aviation traces
+    reliability: medium
+update_frequency: hourly
+spatial_resolution: transcontinental
+temporal_resolution: monthly
+observables:
+  - route_density
+  - path_position
+relations:
+  upstream:
+    - node: wind_patterns
+      type: correlation
+      confidence: 0.53
+  downstream:
+    - node: healthy_life_expectancy
+      type: observation
+      confidence: 0.31
+visualization:
+  mode: temporal-tracks
+  color_scale: gold
+maturity:
+  stage: validation
+notes:
+  - La comparaison N versus N-1 sert ici de signal visuel de variation.
