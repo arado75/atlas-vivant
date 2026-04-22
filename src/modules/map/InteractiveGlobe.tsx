@@ -548,7 +548,8 @@ function sampleTemporalSeriesAtTime(
 
 function geoDistanceInDegrees(a: LonLat, b: LonLat): number {
   const meanLatRad = ((a[1] + b[1]) * 0.5 * Math.PI) / 180;
-  const deltaLon = (a[0] - b[0]) * Math.cos(meanLatRad);
+  const normalizedDeltaLon = ((((a[0] - b[0]) % 360) + 540) % 360) - 180;
+  const deltaLon = normalizedDeltaLon * Math.cos(meanLatRad);
   const deltaLat = a[1] - b[1];
   return Math.hypot(deltaLon, deltaLat);
 }
@@ -1201,13 +1202,42 @@ export function InteractiveGlobe() {
         }
 
         const distance = Math.hypot(projected[0] - centerX, projected[1] - centerY);
-        const sampledTemperatureC = temperatureSampler
-          ? temperatureSampler(city.position[1], city.position[0], temperatureSampleCursor)
-          : interpolateTemperatureFromHeatFeatures(
-              city.position,
-              displayedTemperatureDataset.heat ?? [],
-              temperatureSampleCursor
-            );
+        const hasCitySeries =
+          Array.isArray(city.hourlyTimesMs) &&
+          Array.isArray(city.hourlyTempC) &&
+          city.hourlyTimesMs.length > 0 &&
+          city.hourlyTimesMs.length === city.hourlyTempC.length;
+        const trendCursorDelta = Math.abs(temperatureSampleCursor) > 5000 ? 6 * 60 * 60 * 1000 : 1.2;
+        const fallbackInterpolated =
+          interpolateTemperatureFromHeatFeatures(
+            city.position,
+            displayedTemperatureDataset.heat ?? [],
+            temperatureSampleCursor
+          ) ?? 18;
+
+        const sampledTemperatureC = hasCitySeries
+          ? (sampleTemporalSeriesAtTime(city.hourlyTimesMs, city.hourlyTempC, temperatureSampleCursor) ??
+            city.hourlyTempC[city.hourlyTempC.length - 1])
+          : temperatureSampler
+            ? temperatureSampler(city.position[1], city.position[0], temperatureSampleCursor)
+            : fallbackInterpolated;
+        const previousTemperatureC = hasCitySeries
+          ? (sampleTemporalSeriesAtTime(city.hourlyTimesMs, city.hourlyTempC, temperatureSampleCursor - trendCursorDelta) ??
+            sampledTemperatureC)
+          : temperatureSampler
+            ? temperatureSampler(city.position[1], city.position[0], temperatureSampleCursor - trendCursorDelta)
+            : (interpolateTemperatureFromHeatFeatures(
+                city.position,
+                displayedTemperatureDataset.heat ?? [],
+                temperatureSampleCursor - trendCursorDelta
+              ) ?? sampledTemperatureC);
+        const deltaC = clamp(sampledTemperatureC - previousTemperatureC, -4.5, 4.5);
+        const sourceType = hasCitySeries
+          ? city.sourceType ?? (temperatureSampler ? "interpolated" : "fallback")
+          : temperatureSampler
+            ? "interpolated"
+            : "fallback";
+
         return {
           score: distance,
           payload: {
@@ -1216,10 +1246,10 @@ export function InteractiveGlobe() {
             x: projected[0],
             y: projected[1],
             temperatureC: sampledTemperatureC,
-            deltaC: 0,
+            deltaC,
             color: temperatureToColor(sampledTemperatureC),
             kind: "city" as const,
-            sourceType: city.sourceType ?? (temperatureSampler ? "interpolated" : "fallback")
+            sourceType
           }
         };
       })
@@ -1778,8 +1808,8 @@ export function InteractiveGlobe() {
       if (rect.width <= 0 || rect.height <= 0) {
         return;
       }
-      cursorX = ((event.clientX - rect.left) * viewBoxWidth) / rect.width;
-      cursorY = ((event.clientY - rect.top) * viewBoxHeight) / rect.height;
+      cursorX = ((clientX - rect.left) * viewBoxWidth) / rect.width;
+      cursorY = ((clientY - rect.top) * viewBoxHeight) / rect.height;
     }
 
     if (!Number.isFinite(cursorX) || !Number.isFinite(cursorY)) {

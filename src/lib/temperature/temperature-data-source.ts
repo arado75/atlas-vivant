@@ -683,7 +683,8 @@ function temperatureToIntensity(tempC: number): number {
 
 function angularDistanceDegrees(aLat: number, aLon: number, bLat: number, bLon: number): number {
   const meanLatRad = ((aLat + bLat) * 0.5 * Math.PI) / 180;
-  const deltaLon = (aLon - bLon) * Math.cos(meanLatRad);
+  const normalizedDeltaLon = ((((aLon - bLon) % 360) + 540) % 360) - 180;
+  const deltaLon = normalizedDeltaLon * Math.cos(meanLatRad);
   const deltaLat = aLat - bLat;
   return Math.hypot(deltaLon, deltaLat);
 }
