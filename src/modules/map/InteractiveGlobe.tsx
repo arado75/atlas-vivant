@@ -6,6 +6,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEventHandler,
+  type MouseEventHandler,
   type PointerEventHandler,
   type WheelEventHandler
 } from "react";
@@ -17,7 +18,7 @@ import { layerCatalog } from "../../data/mockCatalog";
 import { mockLayerData } from "../../data/mockAtlasData";
 import { temperatureReferenceCities } from "../../data/temperatureReferenceCities";
 import { clamp } from "../../lib/formatters";
-import { getTemperatureLegendStops, intensityToTemperatureC } from "../../lib/temperature-scale";
+import { getTemperatureLegendStops, intensityToTemperatureC, temperatureToColor } from "../../lib/temperature-scale";
 import {
   isPerfDebugEnabled,
   isPerfFlagEnabled,
@@ -41,6 +42,7 @@ import {
 } from "../../lib/temperature/temperature-data-source";
 import {
   type HoveredCityTemperature,
+  type TemperatureMeshOptions,
   renderTemperatureCityPoint,
   renderTemperatureEventZone,
   renderTemperatureFieldMesh,
@@ -101,6 +103,9 @@ const FRAME_RELIEF_MS = 18;
 const GLOBE_INVERT_Y_STORAGE_KEY = "atlas.globe.invertY.v1";
 const MAX_INTERACTION_PROFILE_SAMPLES = 120;
 const MAX_INTERACTION_PROFILE_SESSIONS = 10;
+const MAX_INTERACTION_FEATURE_SAMPLES = 320;
+const MAX_INTERACTION_HOTSPOT_FEATURES = 8;
+const INTERACTION_HOTSPOT_LOOKBACK_MS = 220;
 
 const focusViews: Record<string, { rotation: [number, number]; zoom: number }> = {
   wind_patterns: { rotation: [-14, -20], zoom: 1.22 },
@@ -169,6 +174,26 @@ interface InteractionFrameSessionSummary {
   longestOver24Streak: number;
 }
 
+interface InteractionHotspotSummary {
+  feature: string;
+  hits: number;
+  avgMs: number;
+  maxMs: number;
+}
+
+interface InteractionFeatureSample {
+  feature: string;
+  durationMs: number;
+  timestampMs: number;
+}
+
+interface InteractionFeatureHotspotStats {
+  hits: number;
+  totalMs: number;
+  maxMs: number;
+  lastSeenAtMs: number;
+}
+
 interface InteractionFrameProfileState {
   totalFrames: number;
   over24Frames: number;
@@ -186,6 +211,7 @@ interface InteractionFrameProfileState {
   currentSessionLongestOver24Streak: number;
   recentOver24Samples: InteractionFrameSample[];
   recentSessions: InteractionFrameSessionSummary[];
+  featureHotspots: Record<string, InteractionFeatureHotspotStats>;
 }
 
 interface InteractionPerfSummary {
@@ -193,6 +219,7 @@ interface InteractionPerfSummary {
   over24Frames: number;
   worstFrameMs: number;
   active: boolean;
+  topHotspots: InteractionHotspotSummary[];
 }
 
 function createInteractionFrameProfileState(): InteractionFrameProfileState {
@@ -212,8 +239,59 @@ function createInteractionFrameProfileState(): InteractionFrameProfileState {
     currentSessionCurrentOver24Streak: 0,
     currentSessionLongestOver24Streak: 0,
     recentOver24Samples: [],
-    recentSessions: []
+    recentSessions: [],
+    featureHotspots: {}
   };
+}
+
+function timestampNow(): number {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
+}
+
+function summarizeInteractionHotspots(
+  hotspots: Record<string, InteractionFeatureHotspotStats>
+): InteractionHotspotSummary[] {
+  return Object.entries(hotspots)
+    .map(([feature, stats]) => ({
+      feature,
+      hits: stats.hits,
+      avgMs: Number((stats.totalMs / Math.max(1, stats.hits)).toFixed(2)),
+      maxMs: Number(stats.maxMs.toFixed(2))
+    }))
+    .sort((left, right) => {
+      if (right.hits !== left.hits) {
+        return right.hits - left.hits;
+      }
+      if (right.avgMs !== left.avgMs) {
+        return right.avgMs - left.avgMs;
+      }
+      return right.maxMs - left.maxMs;
+    })
+    .slice(0, 3);
+}
+
+function hotspotFeatureLabel(feature: string): string {
+  switch (feature) {
+    case "temperature_mesh":
+      return "mesh temp";
+    case "temperature_city_projection":
+      return "villes temp";
+    case "temperature_event_sort":
+      return "zones temp";
+    case "temperature_city_nodes":
+      return "nodes temp";
+    case "flows_nodes":
+      return "flows";
+    case "tracks_nodes":
+      return "tracks";
+    case "pulses_nodes":
+      return "pulses";
+    default:
+      return feature.replace(/_/g, " ");
+  }
 }
 
 function cloneInteractionFrameProfileState(profile: InteractionFrameProfileState): InteractionFrameProfileState {
@@ -610,6 +688,15 @@ function isPointFrontFacing(point: LonLat, rotation: [number, number]): boolean 
 
   return cosineAngularDistance > 0.01;
 }
+
+function normalizeLongitude(longitude: number): number {
+  return ((((longitude + 180) % 360) + 360) % 360) - 180;
+}
+
+function globeCenterFromRotation(rotation: [number, number]): LonLat {
+  return [normalizeLongitude(-rotation[0]), clamp(-rotation[1], -89, 89)];
+}
+
 function layerOpacity(dataset: LayerDataset): number {
   if (dataset.flows?.length) {
     return 0.96;
@@ -880,7 +967,8 @@ export function InteractiveGlobe() {
     totalFrames: 0,
     over24Frames: 0,
     worstFrameMs: 0,
-    active: false
+    active: false,
+    topHotspots: []
   });
   const [hoveredCity, setHoveredCity] = useState<HoveredCityTemperature | null>(null);
   const [temperatureViewLevel, setTemperatureViewLevel] = useState<TemperatureViewLevel>("globe");
@@ -921,6 +1009,7 @@ export function InteractiveGlobe() {
   const lastFrameTimestampRef = useRef<number | null>(null);
   const frameWatchRafRef = useRef<number | null>(null);
   const interactionProfileRef = useRef<InteractionFrameProfileState>(createInteractionFrameProfileState());
+  const interactionFeatureSamplesRef = useRef<InteractionFeatureSample[]>([]);
   const interactionProfilePublishAtRef = useRef(0);
   const pendingRuntimeRef = useRef<TemperatureLayerRuntime | null>(null);
   const temperatureMeshCacheRef = useRef<{ signature: string; node: JSX.Element | null } | null>(null);
@@ -974,6 +1063,15 @@ export function InteractiveGlobe() {
   const isFrontFacing = useMemo(
     () => (point: LonLat) => isPointFrontFacing(point, viewState.rotation),
     [viewState.rotation]
+  );
+  const cameraCenter = useMemo(() => globeCenterFromRotation(viewState.rotation), [viewState.rotation]);
+  const temperatureMeshOptions = useMemo<TemperatureMeshOptions>(
+    () => ({
+      cameraCenter,
+      zoom: viewState.zoom,
+      refinementMode: effectiveEcoMode ? "off" : "france_paris"
+    }),
+    [cameraCenter, viewState.zoom, effectiveEcoMode]
   );
 
   const projection = useMemo(
@@ -1053,6 +1151,23 @@ export function InteractiveGlobe() {
   const forcedInteractionActive = isPerfFlagEnabled("forceInteractionActive");
   const effectiveInteractionActive = isDragInteractionActive || isZoomInteractionActive || forcedInteractionActive;
   const performanceThrottleActive = effectiveInteractionActive || effectiveEcoMode;
+  const recordInteractionFeatureSample = (feature: string, durationMs: number) => {
+    if (!effectiveInteractionActive || durationMs < 0.2) {
+      return;
+    }
+
+    const nextSample: InteractionFeatureSample = {
+      feature,
+      durationMs: Number(durationMs.toFixed(3)),
+      timestampMs: timestampNow()
+    };
+    const buffer = interactionFeatureSamplesRef.current;
+    buffer.push(nextSample);
+    if (buffer.length > MAX_INTERACTION_FEATURE_SAMPLES) {
+      buffer.splice(0, buffer.length - MAX_INTERACTION_FEATURE_SAMPLES);
+    }
+  };
+
   const visibleLayers = useMemo(() => {
     if (!performanceThrottleActive) {
       return baseVisibleLayers;
@@ -1065,6 +1180,63 @@ export function InteractiveGlobe() {
 
     return baseVisibleLayers.filter((layer) => prioritizedLayerIds.has(layer.id));
   }, [baseVisibleLayers, performanceThrottleActive, hasFocusedLayer, selectedLayerId]);
+  const temperatureLayerActive = Boolean(activeLayers.surface_temperature);
+  const temperatureHoverCandidates = useMemo(() => {
+    if (!temperatureLayerActive) {
+      return [] as HoveredCityTemperature[];
+    }
+
+    const allCities = displayedTemperatureDataset.cityTemperatures ?? [];
+    const centerX = viewBoxWidth / 2;
+    const centerY = viewBoxHeight / 2 + 18;
+    const ranked = allCities
+      .map((city) => {
+        if (!isFrontFacing(city.position)) {
+          return null;
+        }
+
+        const projected = projection(city.position);
+        if (!projected) {
+          return null;
+        }
+
+        const distance = Math.hypot(projected[0] - centerX, projected[1] - centerY);
+        const sampledTemperatureC = temperatureSampler
+          ? temperatureSampler(city.position[1], city.position[0], temperatureSampleCursor)
+          : interpolateTemperatureFromHeatFeatures(
+              city.position,
+              displayedTemperatureDataset.heat ?? [],
+              temperatureSampleCursor
+            );
+        return {
+          score: distance,
+          payload: {
+            id: city.id,
+            label: city.label,
+            x: projected[0],
+            y: projected[1],
+            temperatureC: sampledTemperatureC,
+            deltaC: 0,
+            color: temperatureToColor(sampledTemperatureC),
+            kind: "city" as const,
+            sourceType: city.sourceType ?? (temperatureSampler ? "interpolated" : "fallback")
+          }
+        };
+      })
+      .filter((entry): entry is { score: number; payload: HoveredCityTemperature } => Boolean(entry))
+      .sort((left, right) => left.score - right.score)
+      .slice(0, 180)
+      .map((entry) => entry.payload);
+
+    return ranked;
+  }, [
+    temperatureLayerActive,
+    displayedTemperatureDataset,
+    isFrontFacing,
+    projection,
+    temperatureSampler,
+    temperatureSampleCursor
+  ]);
 
   const setTemperatureHover = (payload: HoveredCityTemperature | null) => {
     setHoveredCity((current) => {
@@ -1245,6 +1417,54 @@ export function InteractiveGlobe() {
                 profile.recentOver24Samples.length - MAX_INTERACTION_PROFILE_SAMPLES
               );
             }
+
+            const sampleCutoff = timestampMs - INTERACTION_HOTSPOT_LOOKBACK_MS;
+            const recentFeatureSamples = interactionFeatureSamplesRef.current.filter(
+              (sample) => sample.timestampMs >= sampleCutoff
+            );
+            interactionFeatureSamplesRef.current = recentFeatureSamples;
+
+            if (recentFeatureSamples.length > 0) {
+              const topSamples = [...recentFeatureSamples]
+                .sort((left, right) => right.durationMs - left.durationMs)
+                .slice(0, 3);
+              for (const sample of topSamples) {
+                const currentHotspot = profile.featureHotspots[sample.feature] ?? {
+                  hits: 0,
+                  totalMs: 0,
+                  maxMs: 0,
+                  lastSeenAtMs: 0
+                };
+                currentHotspot.hits += 1;
+                currentHotspot.totalMs += sample.durationMs;
+                currentHotspot.maxMs = Math.max(currentHotspot.maxMs, sample.durationMs);
+                currentHotspot.lastSeenAtMs = Date.now();
+                profile.featureHotspots[sample.feature] = currentHotspot;
+              }
+            } else {
+              const unknownHotspot = profile.featureHotspots.unknown ?? {
+                hits: 0,
+                totalMs: 0,
+                maxMs: 0,
+                lastSeenAtMs: 0
+              };
+              unknownHotspot.hits += 1;
+              unknownHotspot.lastSeenAtMs = Date.now();
+              profile.featureHotspots.unknown = unknownHotspot;
+            }
+
+            const hotspotEntries = Object.entries(profile.featureHotspots).sort((left, right) => {
+              if (right[1].hits !== left[1].hits) {
+                return right[1].hits - left[1].hits;
+              }
+              return right[1].lastSeenAtMs - left[1].lastSeenAtMs;
+            });
+            if (hotspotEntries.length > MAX_INTERACTION_HOTSPOT_FEATURES) {
+              const keep = new Set(hotspotEntries.slice(0, MAX_INTERACTION_HOTSPOT_FEATURES).map(([feature]) => feature));
+              profile.featureHotspots = Object.fromEntries(
+                Object.entries(profile.featureHotspots).filter(([feature]) => keep.has(feature))
+              );
+            }
           } else {
             profile.currentSessionCurrentOver24Streak = 0;
           }
@@ -1290,7 +1510,8 @@ export function InteractiveGlobe() {
             totalFrames: profile.totalFrames,
             over24Frames: profile.over24Frames,
             worstFrameMs: Number(profile.worstFrameMs.toFixed(3)),
-            active: interactionActive
+            active: interactionActive,
+            topHotspots: summarizeInteractionHotspots(profile.featureHotspots)
           });
         }
       }
@@ -1313,6 +1534,9 @@ export function InteractiveGlobe() {
       const stagedRuntime = pendingRuntimeRef.current;
       pendingRuntimeRef.current = null;
       applyTemperatureRuntime(stagedRuntime);
+    }
+    if (!effectiveInteractionActive) {
+      interactionFeatureSamplesRef.current = [];
     }
   }, [effectiveInteractionActive]);
 
@@ -1502,12 +1726,14 @@ export function InteractiveGlobe() {
       getInteractionFrameProfile: () => cloneInteractionFrameProfileState(interactionProfileRef.current),
       resetInteractionFrameProfile: () => {
         interactionProfileRef.current = createInteractionFrameProfileState();
+        interactionFeatureSamplesRef.current = [];
         interactionProfilePublishAtRef.current = 0;
         setInteractionPerfSummary({
           totalFrames: 0,
           over24Frames: 0,
           worstFrameMs: 0,
-          active: interactionActiveRef.current
+          active: interactionActiveRef.current,
+          topHotspots: []
         });
       },
       resetPerf: () => {
@@ -1531,8 +1757,100 @@ export function InteractiveGlobe() {
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
+  const updatePassiveTemperatureHover = (clientX: number, clientY: number, svg: SVGSVGElement) => {
+    if (!temperatureLayerActive || temperatureHoverCandidates.length === 0) {
+      return;
+    }
+    perfInc("hover_probe_moves", 1);
+
+    let cursorX = Number.NaN;
+    let cursorY = Number.NaN;
+    const ctm = typeof svg.getScreenCTM === "function" ? svg.getScreenCTM() : null;
+    if (ctm && typeof svg.createSVGPoint === "function") {
+      const svgPoint = svg.createSVGPoint();
+      svgPoint.x = clientX;
+      svgPoint.y = clientY;
+      const localPoint = svgPoint.matrixTransform(ctm.inverse());
+      cursorX = localPoint.x;
+      cursorY = localPoint.y;
+    } else {
+      const rect = svg.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) {
+        return;
+      }
+      cursorX = ((event.clientX - rect.left) * viewBoxWidth) / rect.width;
+      cursorY = ((event.clientY - rect.top) * viewBoxHeight) / rect.height;
+    }
+
+    if (!Number.isFinite(cursorX) || !Number.isFinite(cursorY)) {
+      return;
+    }
+
+    if (typeof document !== "undefined") {
+      const buttonGroups = Array.from(document.querySelectorAll<SVGGElement>("g[role='button'][aria-label]"));
+      let pointedByProximity: SVGGElement | null = null;
+      let pointedDistance = Number.POSITIVE_INFINITY;
+      for (const group of buttonGroups) {
+        const rect = group.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const distance = Math.hypot(centerX - clientX, centerY - clientY);
+        if (distance < pointedDistance) {
+          pointedDistance = distance;
+          pointedByProximity = group;
+        }
+      }
+      const pointedElement = document.elementFromPoint(clientX, clientY);
+      const pointedGroup =
+        (pointedByProximity && pointedDistance <= 44 ? pointedByProximity : null) ??
+        pointedElement?.closest?.("g[role='button'][aria-label]") ??
+        null;
+      const pointedLabel = pointedGroup?.getAttribute?.("aria-label")?.trim();
+      if (pointedLabel && pointedLabel.length > 0) {
+        const pointedToken = pointedLabel.split(/\s+/)[0]?.toLowerCase() ?? "";
+        if (pointedToken.length > 0) {
+          const directMatch = temperatureHoverCandidates.find(
+            (city) =>
+              city.label.toLowerCase().startsWith(pointedToken) ||
+              city.label.toLowerCase().includes(pointedToken) ||
+              pointedToken.startsWith(city.label.toLowerCase())
+          );
+          if (directMatch) {
+            perfInc("hover_probe_direct_match", 1);
+            setTemperatureHover(directMatch);
+            return;
+          }
+        }
+      }
+    }
+
+    let nearest: HoveredCityTemperature | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    for (const city of temperatureHoverCandidates) {
+      const distance = Math.hypot(city.x - cursorX, city.y - cursorY);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearest = city;
+      }
+    }
+
+    const hoverRadius = effectiveTemperatureViewLevel === "local" ? 16 : 13;
+    if (nearest && nearestDistance <= hoverRadius) {
+      perfInc("hover_probe_nearest_match", 1);
+      setTemperatureHover(nearest);
+      return;
+    }
+
+    if (hoveredCity?.kind === "city") {
+      perfInc("hover_probe_clear", 1);
+      setTemperatureHover(null);
+    }
+  };
+
   const onPointerMove: PointerEventHandler<SVGSVGElement> = (event) => {
     if (!dragOrigin.current) {
+      updatePassiveTemperatureHover(event.clientX, event.clientY, event.currentTarget);
       return;
     }
 
@@ -1571,6 +1889,14 @@ export function InteractiveGlobe() {
         });
       });
     }
+  };
+
+  const onMouseMove: MouseEventHandler<SVGSVGElement> = (event) => {
+    if (dragOrigin.current) {
+      return;
+    }
+
+    updatePassiveTemperatureHover(event.clientX, event.clientY, event.currentTarget);
   };
 
   const releasePointer: PointerEventHandler<SVGSVGElement> = (event) => {
@@ -1683,6 +2009,15 @@ export function InteractiveGlobe() {
     interactionPerfSummary.totalFrames > 0
       ? `Perf interaction >24ms: ${interactionPerfSummary.over24Frames}/${interactionPerfSummary.totalFrames} | pic ${interactionPerfSummary.worstFrameMs.toFixed(1)}ms`
       : "Perf interaction >24ms: en attente";
+  const interactionHotspotLabel =
+    interactionPerfSummary.topHotspots.length > 0
+      ? `Hotspots >24ms: ${interactionPerfSummary.topHotspots
+          .map(
+            (hotspot) =>
+              `${hotspotFeatureLabel(hotspot.feature)} (${hotspot.hits}x, avg ${hotspot.avgMs.toFixed(1)}ms)`
+          )
+          .join(" | ")}`
+      : "Hotspots >24ms: en attente";
   const multiScaleLabel =
     multiScaleViewPreset === "planetary"
       ? "Echelle planetaire"
@@ -1702,6 +2037,7 @@ export function InteractiveGlobe() {
         <span>{formatRefreshPhaseLabel(temperatureRefreshUi)}</span>
         <span>{qualityStatusLabel}</span>
         <span>{interactionPerfLabel}</span>
+        <span>{interactionHotspotLabel}</span>
         <span>{multiScaleLabel}</span>
         <div className="globe-quality-controls" role="group" aria-label="Qualite de rendu">
           {(["auto", "quality", "eco"] as RenderQualityMode[]).map((mode) => (
@@ -1754,6 +2090,7 @@ export function InteractiveGlobe() {
         viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
+        onMouseMove={onMouseMove}
         onPointerUp={releasePointer}
         onPointerCancel={releasePointer}
         onWheel={onWheel}
@@ -1861,15 +2198,21 @@ export function InteractiveGlobe() {
                 ? Math.max(opacityWeight, 0.72)
                 : opacityWeight;
 
-            const temperatureEventZones = isTemperatureLayer && !effectiveInteractionActive
-              ? [...(dataset.eventZones ?? [])]
-                  .sort((left, right) => right.intensity - left.intensity)
-                  .slice(0, temperatureViewBudget.maxEventZones)
-              : [];
+            const temperatureEventZones =
+              isTemperatureLayer && !effectiveInteractionActive
+                ? (() => {
+                    const eventSortStartMs = timestampNow();
+                    const sorted = [...(dataset.eventZones ?? [])]
+                      .sort((left, right) => right.intensity - left.intensity)
+                      .slice(0, temperatureViewBudget.maxEventZones);
+                    recordInteractionFeatureSample("temperature_event_sort", timestampNow() - eventSortStartMs);
+                    return sorted;
+                  })()
+                : [];
 
             const temperatureCities = isTemperatureLayer && !effectiveInteractionActive
               ? (() => {
-                  const cityProjectionStartMs = perfDebugEnabled ? perfNow() : 0;
+                  const cityProjectionStartMs = timestampNow();
                   const allCities = dataset.cityTemperatures ?? [];
                   const centerX = viewBoxWidth / 2;
                   const centerY = viewBoxHeight / 2 + 18;
@@ -1903,9 +2246,11 @@ export function InteractiveGlobe() {
                     .slice(0, temperatureViewBudget.maxCities)
                     .map((entry) => entry.city);
 
+                  const cityProjectionDurationMs = timestampNow() - cityProjectionStartMs;
+                  recordInteractionFeatureSample("temperature_city_projection", cityProjectionDurationMs);
                   if (perfDebugEnabled) {
                     perfInc("temperature_city_projection_batches", 1);
-                    perfObserveDuration("temperature_city_projection_ms", perfNow() - cityProjectionStartMs);
+                    perfObserveDuration("temperature_city_projection_ms", cityProjectionDurationMs);
                   }
 
                   return ranked;
@@ -1925,6 +2270,7 @@ export function InteractiveGlobe() {
                   temperatureRuntime?.fetchedAtMs ?? 0,
                   temperatureSampleCursor,
                   effectiveTemperatureViewLevel,
+                  temperatureMeshOptions.refinementMode ?? "off",
                   viewState.zoom.toFixed(4),
                   viewState.rotation[0].toFixed(3),
                   viewState.rotation[1].toFixed(3),
@@ -1934,8 +2280,10 @@ export function InteractiveGlobe() {
 
             const temperatureFieldMesh = isTemperatureLayer && !effectiveInteractionActive
               ? (() => {
+                  const meshStartMs = timestampNow();
                   if (temperatureMeshCacheRef.current?.signature === temperatureMeshSignature) {
                     perfInc("mesh_cache_hits", 1);
+                    recordInteractionFeatureSample("temperature_mesh", timestampNow() - meshStartMs);
                     return temperatureMeshCacheRef.current.node;
                   }
 
@@ -1949,8 +2297,10 @@ export function InteractiveGlobe() {
                     isFrontFacing,
                     (payload) => setTemperatureHover(payload),
                     (hoverId) => scheduleTemperatureHoverClear(hoverId),
-                    effectiveInteractionActive
+                    effectiveInteractionActive,
+                    temperatureMeshOptions
                   );
+                  recordInteractionFeatureSample("temperature_mesh", timestampNow() - meshStartMs);
                   temperatureMeshCacheRef.current = {
                     signature: temperatureMeshSignature,
                     node
@@ -1980,6 +2330,110 @@ export function InteractiveGlobe() {
               : effectiveEcoMode
                 ? (dataset.pulses ?? []).slice(0, emphasized ? Math.floor(INTERACTION_PULSE_LIMIT * ecoLimitMultiplier * 1.5) : Math.floor(INTERACTION_PULSE_LIMIT * ecoLimitMultiplier))
                 : dataset.pulses ?? [];
+            const temperatureEventZoneNodes = isTemperatureLayer
+              ? (() => {
+                  const nodesStartMs = timestampNow();
+                  const nodes = temperatureEventZones.map((zone, zoneIndex) =>
+                    renderTemperatureEventZone(
+                      zone,
+                      dataset.heat ?? [],
+                      projection,
+                      temperatureSampleCursor,
+                      globalPhase,
+                      emphasized,
+                      zoneIndex,
+                      timeWindow,
+                      effectiveTemperatureViewLevel,
+                      isFrontFacing,
+                      temperatureSampler,
+                      (payload) => setTemperatureHover(payload),
+                      () => scheduleTemperatureHoverClear(zone.id)
+                    )
+                  );
+                  recordInteractionFeatureSample("temperature_event_nodes", timestampNow() - nodesStartMs);
+                  return nodes;
+                })()
+              : [];
+            const temperatureCityNodes = isTemperatureLayer
+              ? (() => {
+                  const nodesStartMs = timestampNow();
+                  const nodes = temperatureCities.map((city) =>
+                    renderTemperatureCityPoint(
+                      city,
+                      dataset.heat ?? [],
+                      projection,
+                      temperatureSampleCursor,
+                      effectiveTemperatureViewLevel,
+                      isRegionalTemperatureAnchorCity(city.id),
+                      isFrontFacing,
+                      temperatureSampler,
+                      (payload) => setTemperatureHover(payload),
+                      () => scheduleTemperatureHoverClear(city.id)
+                    )
+                  );
+                  recordInteractionFeatureSample("temperature_city_nodes", timestampNow() - nodesStartMs);
+                  return nodes;
+                })()
+              : [];
+            const flowNodes = (() => {
+              const nodesStartMs = timestampNow();
+              const nodes = flowEntries.map((entry, flowIndex) =>
+                renderFlow(
+                  entry,
+                  projection,
+                  pathBuilder,
+                  globalPhase,
+                  familyProfile,
+                  visualRegime,
+                  emphasized,
+                  flowIndex,
+                  signature,
+                  isFrontFacing
+                )
+              );
+              recordInteractionFeatureSample("flows_nodes", timestampNow() - nodesStartMs);
+              return nodes;
+            })();
+            const trackNodes = (() => {
+              const nodesStartMs = timestampNow();
+              const nodes = trackEntries.map((entry, trackIndex) =>
+                renderTrack(
+                  entry,
+                  projection,
+                  pathBuilder,
+                  animatedCycleIndex,
+                  compareEnabled,
+                  emphasized,
+                  familyProfile,
+                  visualRegime,
+                  trackIndex,
+                  globalPhase,
+                  signature,
+                  isFrontFacing
+                )
+              );
+              recordInteractionFeatureSample("tracks_nodes", timestampNow() - nodesStartMs);
+              return nodes;
+            })();
+            const pulseNodes = (() => {
+              const nodesStartMs = timestampNow();
+              const nodes = pulseEntries.map((entry, pulseIndex) =>
+                renderPulse(
+                  entry,
+                  projection,
+                  animatedCycleIndex,
+                  familyProfile,
+                  visualRegime,
+                  emphasized,
+                  pulseIndex,
+                  globalPhase,
+                  signature,
+                  isFrontFacing
+                )
+              );
+              recordInteractionFeatureSample("pulses_nodes", timestampNow() - nodesStartMs);
+              return nodes;
+            })();
             return (
               <g key={layer.id} opacity={layerOpacity(dataset) * finalOpacityWeight}>
 
@@ -1999,85 +2453,11 @@ export function InteractiveGlobe() {
                       )
                     )
                   : null}
-                {isTemperatureLayer
-                  ? temperatureEventZones.map((zone, zoneIndex) =>
-                      renderTemperatureEventZone(
-                        zone,
-                        dataset.heat ?? [],
-                        projection,
-                        temperatureSampleCursor,
-                        globalPhase,
-                        emphasized,
-                        zoneIndex,
-                        timeWindow,
-                        effectiveTemperatureViewLevel,
-                        isFrontFacing,
-                        temperatureSampler,
-                        (payload) => setTemperatureHover(payload),
-                        () => scheduleTemperatureHoverClear(zone.id)
-                      )
-                    )
-                  : null}
-                {isTemperatureLayer
-                  ? temperatureCities.map((city) =>
-                      renderTemperatureCityPoint(
-                        city,
-                        dataset.heat ?? [],
-                        projection,
-                        temperatureSampleCursor,
-                        effectiveTemperatureViewLevel,
-                        isRegionalTemperatureAnchorCity(city.id),
-                        isFrontFacing,
-                        temperatureSampler,
-                        (payload) => setTemperatureHover(payload),
-                        () => scheduleTemperatureHoverClear(city.id)
-                      )
-                    )
-                  : null}
-                {flowEntries.map((entry, flowIndex) =>
-                  renderFlow(
-                    entry,
-                    projection,
-                    pathBuilder,
-                    globalPhase,
-                    familyProfile,
-                    visualRegime,
-                    emphasized,
-                    flowIndex,
-                    signature,
-                    isFrontFacing
-                  )
-                )}
-                {trackEntries.map((entry, trackIndex) =>
-                  renderTrack(
-                    entry,
-                    projection,
-                    pathBuilder,
-                    animatedCycleIndex,
-                    compareEnabled,
-                    emphasized,
-                    familyProfile,
-                    visualRegime,
-                    trackIndex,
-                    globalPhase,
-                    signature,
-                    isFrontFacing
-                  )
-                )}
-                {pulseEntries.map((entry, pulseIndex) =>
-                  renderPulse(
-                    entry,
-                    projection,
-                    animatedCycleIndex,
-                    familyProfile,
-                    visualRegime,
-                    emphasized,
-                    pulseIndex,
-                    globalPhase,
-                    signature,
-                    isFrontFacing
-                  )
-                )}
+                {flowNodes}
+                {trackNodes}
+                {pulseNodes}
+                {isTemperatureLayer ? temperatureEventZoneNodes : null}
+                {isTemperatureLayer ? temperatureCityNodes : null}
               </g>
             );
           })}

@@ -23,6 +23,28 @@ type VisualRegime = "short" | "medium" | "long";
 
 type TemperatureSampler = (lat: number, lon: number, timeMs: number) => number;
 type TemperatureDisplaySourceType = TemperatureSourceType | "inferred" | "mock";
+type TemperatureMeshRefinementMode = "off" | "france_paris";
+
+interface TemperatureMeshBounds {
+  minLon: number;
+  maxLon: number;
+  minLat: number;
+  maxLat: number;
+}
+
+interface TemperatureMeshPass {
+  key: string;
+  bounds: TemperatureMeshBounds;
+  step: number;
+  maxCells: number;
+  opacityScale: number;
+}
+
+export interface TemperatureMeshOptions {
+  cameraCenter?: LonLat;
+  zoom?: number;
+  refinementMode?: TemperatureMeshRefinementMode;
+}
 
 export interface HoveredCityTemperature {
   id: string;
@@ -145,8 +167,9 @@ function fieldTemperatureFromHeat(
 }
 
 function distanceInDegrees(aLon: number, aLat: number, bLon: number, bLat: number): number {
+  const normalizedLonDelta = ((((aLon - bLon) % 360) + 540) % 360) - 180;
   const latRadians = ((aLat + bLat) * 0.5 * Math.PI) / 180;
-  const deltaLon = (aLon - bLon) * Math.cos(latRadians);
+  const deltaLon = normalizedLonDelta * Math.cos(latRadians);
   const deltaLat = aLat - bLat;
   return Math.hypot(deltaLon, deltaLat);
 }
@@ -235,7 +258,8 @@ export function renderTemperatureFieldMesh(
   isFrontFacing: (point: LonLat) => boolean,
   _onHover: (payload: HoveredCityTemperature) => void,
   _onLeave: (hoverId: string) => void,
-  isInteractionActive = false
+  isInteractionActive = false,
+  meshOptions?: TemperatureMeshOptions
 ) {
   const perfStartMs = perfNow();
   perfInc("mesh_calls", 1);
@@ -252,7 +276,6 @@ export function renderTemperatureFieldMesh(
 
   const interactionStepMultiplier = isInteractionActive ? 3.2 : 1;
   const step = meshStepByView(viewLevel) * interactionStepMultiplier;
-  const halfStep = step / 2;
   const maxCells = meshMaxCellsByView(viewLevel);
   const baseOpacity = meshOpacityByView(viewLevel);
   const filter = isInteractionActive || isPerfFlagEnabled("disableMeshBlur") ? "none" : meshFilterByView(viewLevel);
@@ -272,18 +295,14 @@ export function renderTemperatureFieldMesh(
       ? sampleTemperature(lat, lon, cursor)
       : fieldTemperatureFromHeat([lon, lat], heatFeatures, cursor, useAnimatedIntensity);
 
-  const blendedCellTemperature = (
-    lat: number,
-    lon: number,
-    cursor: number,
-    useAnimatedIntensity: boolean
-  ): number => {
+  const blendedCellTemperature = (lat: number, lon: number, cursor: number, useAnimatedIntensity: boolean, sampleStep: number): number => {
+    const halfSampleStep = sampleStep / 2;
     const center = sampleFieldTemperature(lat, lon, cursor, useAnimatedIntensity);
     const corners = [
-      sampleFieldTemperature(lat + halfStep, lon - halfStep, cursor, useAnimatedIntensity),
-      sampleFieldTemperature(lat + halfStep, lon + halfStep, cursor, useAnimatedIntensity),
-      sampleFieldTemperature(lat - halfStep, lon + halfStep, cursor, useAnimatedIntensity),
-      sampleFieldTemperature(lat - halfStep, lon - halfStep, cursor, useAnimatedIntensity)
+      sampleFieldTemperature(lat + halfSampleStep, lon - halfSampleStep, cursor, useAnimatedIntensity),
+      sampleFieldTemperature(lat + halfSampleStep, lon + halfSampleStep, cursor, useAnimatedIntensity),
+      sampleFieldTemperature(lat - halfSampleStep, lon + halfSampleStep, cursor, useAnimatedIntensity),
+      sampleFieldTemperature(lat - halfSampleStep, lon - halfSampleStep, cursor, useAnimatedIntensity)
     ];
 
     const cornerAverage = corners.reduce((sum, value) => sum + value, 0) / corners.length;
@@ -294,67 +313,123 @@ export function renderTemperatureFieldMesh(
     return center * (1 - blendWeight) + cornerAverage * blendWeight;
   };
 
-  for (let rowIndex = 0, lat = -77; lat <= 77; lat += step, rowIndex += 1) {
-    if (cells.length >= maxCells) {
-      break;
+  const meshPasses: TemperatureMeshPass[] = [
+    {
+      key: "global",
+      bounds: { minLon: -180, maxLon: 180, minLat: -77, maxLat: 77 },
+      step,
+      maxCells,
+      opacityScale: 1
+    }
+  ];
+
+  const refinementMode = meshOptions?.refinementMode ?? "off";
+  const center = meshOptions?.cameraCenter;
+  const zoom = meshOptions?.zoom ?? 1;
+  const canRefine =
+    !isInteractionActive &&
+    refinementMode === "france_paris" &&
+    Boolean(center) &&
+    viewLevel !== "globe" &&
+    zoom >= 1.18;
+
+  if (canRefine && center) {
+    const distanceToFrance = distanceInDegrees(center[0], center[1], 2.2, 46.2);
+    const distanceToParis = distanceInDegrees(center[0], center[1], 2.35, 48.86);
+
+    if (distanceToFrance <= 58 && zoom >= 1.22) {
+      meshPasses.push({
+        key: "france",
+        bounds: { minLon: -6.5, maxLon: 10.5, minLat: 41, maxLat: 51.8 },
+        step: Math.max(1.35, step * 0.36),
+        maxCells: viewLevel === "local" ? 240 : 170,
+        opacityScale: 0.86
+      });
     }
 
-    const rowShift = rowIndex % 2 === 0 ? 0 : halfStep;
+    if (viewLevel === "local" && zoom >= 2 && distanceToParis <= 16) {
+      meshPasses.push({
+        key: "paris",
+        bounds: { minLon: 1.85, maxLon: 2.9, minLat: 48.55, maxLat: 49.1 },
+        step: Math.max(0.24, step * 0.16),
+        maxCells: 210,
+        opacityScale: 0.95
+      });
+    }
+  }
 
-    for (let lon = -180 + halfStep + rowShift; lon < 180; lon += step) {
-      if (cells.length >= maxCells) {
+  for (const meshPass of meshPasses) {
+    let passCells = 0;
+    const passStep = meshPass.step;
+    const halfStep = passStep / 2;
+    const minLat = clamp(meshPass.bounds.minLat, -88, 88);
+    const maxLat = clamp(meshPass.bounds.maxLat, -88, 88);
+    const minLon = clamp(meshPass.bounds.minLon, -180, 180);
+    const maxLon = clamp(meshPass.bounds.maxLon, -180, 180);
+
+    for (let rowIndex = 0, lat = minLat; lat <= maxLat; lat += passStep, rowIndex += 1) {
+      if (passCells >= meshPass.maxCells) {
         break;
       }
 
-      const center: LonLat = [lon, lat];
-      const northWestCoord: LonLat = [lon - halfStep, lat + halfStep];
-      const northEastCoord: LonLat = [lon + halfStep, lat + halfStep];
-      const southEastCoord: LonLat = [lon + halfStep, lat - halfStep];
-      const southWestCoord: LonLat = [lon - halfStep, lat - halfStep];
+      const rowShift = rowIndex % 2 === 0 ? 0 : halfStep;
 
-      if (
-        !isFrontFacing(center) ||
-        !isFrontFacing(northWestCoord) ||
-        !isFrontFacing(northEastCoord) ||
-        !isFrontFacing(southEastCoord) ||
-        !isFrontFacing(southWestCoord)
-      ) {
-        continue;
+      for (let lon = minLon + halfStep + rowShift; lon < maxLon; lon += passStep) {
+        if (passCells >= meshPass.maxCells) {
+          break;
+        }
+
+        const cellCenter: LonLat = [lon, lat];
+        const northWestCoord: LonLat = [lon - halfStep, lat + halfStep];
+        const northEastCoord: LonLat = [lon + halfStep, lat + halfStep];
+        const southEastCoord: LonLat = [lon + halfStep, lat - halfStep];
+        const southWestCoord: LonLat = [lon - halfStep, lat - halfStep];
+
+        if (
+          !isFrontFacing(cellCenter) ||
+          !isFrontFacing(northWestCoord) ||
+          !isFrontFacing(northEastCoord) ||
+          !isFrontFacing(southEastCoord) ||
+          !isFrontFacing(southWestCoord)
+        ) {
+          continue;
+        }
+
+        const northWest = projection(northWestCoord);
+        projectionCalls += 1;
+        const northEast = projection(northEastCoord);
+        projectionCalls += 1;
+        const southEast = projection(southEastCoord);
+        projectionCalls += 1;
+        const southWest = projection(southWestCoord);
+        projectionCalls += 1;
+
+        if (!northWest || !northEast || !southEast || !southWest) {
+          continue;
+        }
+
+        const temperatureC = isInteractionActive
+          ? sampleFieldTemperature(lat, lon, timeIndex, true)
+          : blendedCellTemperature(lat, lon, timeIndex, true, passStep);
+        const color = temperatureToColor(temperatureC);
+        const contrast = clamp(Math.abs(temperatureC - 14) / 20, 0.35, 1);
+        const opacity = baseOpacity * (0.62 + contrast * 0.5) * meshPass.opacityScale;
+        const hoverId = `heat_mesh_${meshPass.key}_${lat.toFixed(3)}_${lon.toFixed(3)}`;
+
+        cells.push(
+          <path
+            key={hoverId}
+            d={`M ${northWest[0]} ${northWest[1]} L ${northEast[0]} ${northEast[1]} L ${southEast[0]} ${southEast[1]} L ${southWest[0]} ${southWest[1]} Z`}
+            fill={color}
+            fillOpacity={opacity}
+            stroke="none"
+            strokeOpacity={strokeOpacity}
+            strokeWidth={0}
+            aria-label={includePerfAria ? `Nappe thermique ${temperatureC.toFixed(1)} C` : undefined}
+          />
+        );
+        passCells += 1;
       }
-
-      const northWest = projection(northWestCoord);
-      projectionCalls += 1;
-      const northEast = projection(northEastCoord);
-      projectionCalls += 1;
-      const southEast = projection(southEastCoord);
-      projectionCalls += 1;
-      const southWest = projection(southWestCoord);
-      projectionCalls += 1;
-
-      if (!northWest || !northEast || !southEast || !southWest) {
-        continue;
-      }
-
-      const temperatureC = isInteractionActive
-        ? sampleFieldTemperature(lat, lon, timeIndex, true)
-        : blendedCellTemperature(lat, lon, timeIndex, true);
-      const color = temperatureToColor(temperatureC);
-      const contrast = clamp(Math.abs(temperatureC - 14) / 20, 0.35, 1);
-      const opacity = baseOpacity * (0.62 + contrast * 0.5);
-      const hoverId = `heat_mesh_${lat.toFixed(2)}_${lon.toFixed(2)}`;
-
-      cells.push(
-        <path
-          key={hoverId}
-          d={`M ${northWest[0]} ${northWest[1]} L ${northEast[0]} ${northEast[1]} L ${southEast[0]} ${southEast[1]} L ${southWest[0]} ${southWest[1]} Z`}
-          fill={color}
-          fillOpacity={opacity}
-          stroke="none"
-          strokeOpacity={strokeOpacity}
-          strokeWidth={0}
-          aria-label={includePerfAria ? `Nappe thermique ${temperatureC.toFixed(1)} C` : undefined}
-        />
-      );
     }
   }
 
@@ -366,7 +441,7 @@ export function renderTemperatureFieldMesh(
   perfObserveDuration("mesh_render_ms", perfNow() - perfStartMs);
 
   return (
-    <g filter={filter} style={{ mixBlendMode: "normal" }} pointerEvents="none">
+    <g filter={filter} style={{ mixBlendMode: "normal", pointerEvents: "none" }}>
       {cells}
     </g>
   );
@@ -463,9 +538,9 @@ export function renderTemperatureHeat(
       tabIndex={0}
       role="button"
       aria-label={`${heat.label} ${formatTemperature(temperatureC)}`}
-      style={{ cursor: "pointer", transition: "opacity 180ms ease-out" }}
+      style={{ cursor: "pointer", transition: "opacity 180ms ease-out", pointerEvents: "all" }}
     >
-      <circle cx={center[0]} cy={center[1]} r={Math.max(8, radius * 0.92)} fill="transparent" />
+      <circle cx={center[0]} cy={center[1]} r={Math.max(8, radius * 0.92)} fill="rgba(0,0,0,0.001)" />
       <circle
         cx={center[0]}
         cy={center[1]}
@@ -554,17 +629,19 @@ export function renderTemperatureCityPoint(
       key={city.id}
       transform={`translate(${point[0]}, ${point[1]})`}
       onPointerEnter={emitCityHover}
+      onPointerMove={emitCityHover}
       onPointerLeave={onLeave}
       onMouseEnter={emitCityHover}
+      onMouseMove={emitCityHover}
       onMouseLeave={onLeave}
       onFocus={emitCityHover}
       onBlur={onLeave}
       tabIndex={0}
       role="button"
       aria-label={`${city.label} ${formatTemperature(sample.temperatureC)}`}
-      style={{ cursor: "pointer", transition: "opacity 180ms ease-out" }}
+      style={{ cursor: "pointer", transition: "opacity 180ms ease-out", pointerEvents: "all" }}
     >
-      <circle r={11} fill="transparent" />
+      <circle r={14} fill="rgba(0,0,0,0.001)" />
       <circle r={haloRadius} fill={sample.color} fillOpacity={viewLevel === "local" ? 0.12 : 0.08} />
       <circle r={cityRadius} fill={sample.color} fillOpacity={pointOpacity} stroke="rgba(230,244,255,0.86)" strokeWidth={0.8} />
       {viewLevel === "local" && trend !== "stable" ? (
@@ -707,9 +784,9 @@ export function renderTemperatureEventZone(
       tabIndex={0}
       role="button"
       aria-label={`${zone.label} ${formatTemperature(zoneTemperatureC)}`}
-      style={{ cursor: "pointer", transition: "opacity 180ms ease-out" }}
+      style={{ cursor: "pointer", transition: "opacity 180ms ease-out", pointerEvents: "all" }}
     >
-      <circle cx={point[0]} cy={point[1]} r={radius * 1.06} fill="transparent" />
+      <circle cx={point[0]} cy={point[1]} r={radius * 1.06} fill="rgba(0,0,0,0.001)" />
       <circle
         cx={point[0]}
         cy={point[1]}
