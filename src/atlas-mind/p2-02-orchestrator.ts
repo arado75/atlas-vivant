@@ -43,6 +43,8 @@ export interface MindIngressSignal {
     qualityIssueCode?: string;
     fieldCityDeltaC?: number;
     runtimeAvailable?: boolean;
+    activeLayerIds?: string[];
+    selectedBrickId?: string;
   };
 }
 
@@ -179,7 +181,10 @@ function buildRuntimeAvailabilitySignalFromIngress(input: MindIngressSignal): Si
       consecutiveFailures: hasFailures ? Math.max(0, Math.trunc(consecutiveFailures)) : 0,
       lastSuccessAgeMin: hasAge ? Math.max(0, lastSuccessAgeMin) : undefined,
       runtimeSource: input.context?.runtimeSource ?? input.source,
-      source: input.source
+      source: input.source,
+      ingressType: input.type,
+      activeLayerIds: input.context?.activeLayerIds,
+      selectedBrickId: input.context?.selectedBrickId
     }
   };
 }
@@ -236,7 +241,10 @@ function buildDataQualitySignalFromIngress(input: MindIngressSignal): Signal | n
       qualityIssueCode: issueCode ?? "unknown",
       fieldCityDeltaC: hasDelta ? fieldCityDeltaC : undefined,
       runtimeAvailable: input.context?.runtimeAvailable,
-      source: input.source
+      source: input.source,
+      ingressType: input.type,
+      activeLayerIds: input.context?.activeLayerIds,
+      selectedBrickId: input.context?.selectedBrickId
     }
   };
 }
@@ -296,7 +304,10 @@ export async function runMindP202Orchestrator(input: MindIngressSignal): Promise
       const cycleResult = await runP201TemperatureMiniCycle(cityQuery, {
         thresholdC: input.context?.thresholdC,
         forceRefresh: input.context?.forceRefresh,
-        referenceMs: input.context?.referenceMs
+        referenceMs: input.context?.referenceMs,
+        activeLayerIds: input.context?.activeLayerIds,
+        selectedBrickId: input.context?.selectedBrickId,
+        ingressType: input.type
       });
 
       return finalizeOutput(input, {

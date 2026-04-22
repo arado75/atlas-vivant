@@ -11,6 +11,9 @@ interface RunP201TemperatureMiniCycleOptions {
   thresholdC?: number;
   forceRefresh?: boolean;
   referenceMs?: number;
+  activeLayerIds?: string[];
+  selectedBrickId?: string;
+  ingressType?: string;
 }
 
 export interface P201MiniCycleResult {
@@ -39,6 +42,22 @@ function readContextString(context: Record<string, unknown> | undefined, key: st
 
   const raw = context[key];
   return typeof raw === "string" && raw.trim().length > 0 ? raw : null;
+}
+
+function readContextStringArray(context: Record<string, unknown> | undefined, key: string): string[] {
+  if (!context) {
+    return [];
+  }
+
+  const raw = context[key];
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
 }
 
 function getDeltaImportance(deltaC: number): number {
@@ -93,7 +112,12 @@ function totalImportance(evaluations: Evaluation[]): number {
 function buildDecisionLogEntry(
   result: P201MiniCycleResult,
   anomalyThresholdC: number,
-  cityFallbackLabel: string
+  cityFallbackLabel: string,
+  metadata: {
+    activeLayerIds?: string[];
+    selectedBrickId?: string;
+    ingressType?: string;
+  } = {}
 ): DecisionLogEntry {
   const cityId =
     result.snapshot?.cityId ??
@@ -110,6 +134,13 @@ function buildDecisionLogEntry(
     city,
     cityId,
     deltaC,
+    routeId: "p2-01.temperature-mini-cycle",
+    signalKind: result.signal?.kind ?? "temperature_anomaly",
+    signalDomain: result.signal?.domain ?? "temperature",
+    sourceType: result.snapshot?.source ?? readContextString(result.signal?.context, "source"),
+    ingressType: metadata.ingressType ?? null,
+    activeLayerIds: (metadata.activeLayerIds ?? readContextStringArray(result.signal?.context, "activeLayerIds")).slice(0, 16),
+    selectedBrickId: metadata.selectedBrickId ?? readContextString(result.signal?.context, "selectedBrickId"),
     anomalyThresholdC,
     persistenceLevel: "none",
     persistenceCount: 0,
@@ -130,9 +161,14 @@ function buildDecisionLogEntry(
 function persistResult(
   result: P201MiniCycleResult,
   anomalyThresholdC: number,
-  cityFallbackLabel: string
+  cityFallbackLabel: string,
+  metadata: {
+    activeLayerIds?: string[];
+    selectedBrickId?: string;
+    ingressType?: string;
+  } = {}
 ): P201MiniCycleResult {
-  appendDecisionLog(buildDecisionLogEntry(result, anomalyThresholdC, cityFallbackLabel));
+  appendDecisionLog(buildDecisionLogEntry(result, anomalyThresholdC, cityFallbackLabel, metadata));
   return result;
 }
 
@@ -178,7 +214,12 @@ export async function runP201TemperatureMiniCycle(
         }
       },
       anomalyThresholdC,
-      cityQuery
+      cityQuery,
+      {
+        activeLayerIds: options.activeLayerIds,
+        selectedBrickId: options.selectedBrickId,
+        ingressType: options.ingressType
+      }
     );
   }
 
@@ -197,7 +238,12 @@ export async function runP201TemperatureMiniCycle(
         }
       },
       anomalyThresholdC,
-      detection.snapshot.cityLabel
+      detection.snapshot.cityLabel,
+      {
+        activeLayerIds: options.activeLayerIds,
+        selectedBrickId: options.selectedBrickId,
+        ingressType: options.ingressType
+      }
     );
   }
 
@@ -214,7 +260,12 @@ export async function runP201TemperatureMiniCycle(
       triage: cycle.triage
     },
     anomalyThresholdC,
-    detection.snapshot.cityLabel
+    detection.snapshot.cityLabel,
+    {
+      activeLayerIds: options.activeLayerIds,
+      selectedBrickId: options.selectedBrickId,
+      ingressType: options.ingressType
+    }
   );
 }
 

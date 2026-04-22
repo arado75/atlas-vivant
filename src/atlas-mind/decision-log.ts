@@ -13,6 +13,13 @@ export interface DecisionLogEntry {
   city: string;
   cityId: string | null;
   deltaC: number | null;
+  routeId?: string;
+  signalKind?: string;
+  signalDomain?: string;
+  sourceType?: string | null;
+  ingressType?: string | null;
+  activeLayerIds?: string[];
+  selectedBrickId?: string | null;
   anomalyThresholdC: number;
   persistenceLevel: PersistenceLevel;
   persistenceCount: number;

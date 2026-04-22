@@ -46,6 +46,22 @@ function readContextString(context: Record<string, unknown> | undefined, key: st
   return typeof raw === "string" && raw.trim().length > 0 ? raw : null;
 }
 
+function readContextStringArray(context: Record<string, unknown> | undefined, key: string): string[] {
+  if (!context) {
+    return [];
+  }
+
+  const raw = context[key];
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
 function getAvailabilityImportance(available: boolean | null, consecutiveFailures: number): number {
   if (available === true) {
     return 0;
@@ -157,6 +173,13 @@ function buildDecisionLogEntry(result: P203RuntimeAvailabilityCycleResult): Deci
     city: "runtime:temperature-availability",
     cityId: "runtime.temperature.availability",
     deltaC: null,
+    routeId: "p2-03.temperature-runtime-availability-cycle",
+    signalKind: result.signal.kind,
+    signalDomain: result.signal.domain,
+    sourceType: result.snapshot.source,
+    ingressType: readContextString(result.signal.context, "ingressType"),
+    activeLayerIds: readContextStringArray(result.signal.context, "activeLayerIds").slice(0, 16),
+    selectedBrickId: readContextString(result.signal.context, "selectedBrickId"),
     anomalyThresholdC: DEFAULT_TEMPERATURE_ANOMALY_THRESHOLD_C,
     persistenceLevel: "none",
     persistenceCount: 0,

@@ -13,6 +13,7 @@ import {
   mindStatusMatchesEpistemicFilter
 } from "../../lib/epistemic-layer";
 import { clearDecisionLogs, getRecentDecisionLogs } from "../../atlas-mind/decision-log";
+import { getSignalCorrelations, type CorrelationResult } from "../../atlas-mind/decision-correlation";
 import {
   clearMindOrchestrationTrace,
   getRecentMindOrchestrationTrace,
@@ -179,7 +180,49 @@ function traceSummary(entry: MindOrchestrationTraceEntry): string {
   return `${routeLabel(entry.routedTo)} | ${decisionLabel(entry.decision)} | ${entry.priority}`;
 }
 
+function correlationTokenLabel(token: string): string {
+  const parts = token.split(":");
+  if (parts.length <= 1) {
+    return token;
+  }
+
+  const [prefix, ...tail] = parts;
+  const value = tail.join(":").replace(/_/g, " ");
+  switch (prefix) {
+    case "decision":
+      return `decision ${value}`;
+    case "route":
+      return `route ${value}`;
+    case "signal":
+      return `signal ${value}`;
+    case "domain":
+      return `domaine ${value}`;
+    case "source":
+      return `source ${value}`;
+    case "ingress":
+      return `ingress ${value}`;
+    case "city":
+      return `ville ${value}`;
+    case "layer":
+      return `couche ${value}`;
+    case "focus_brick":
+      return `focus ${value}`;
+    case "issue":
+      return `issue ${value}`;
+    case "recommendation":
+      return `reco ${value}`;
+    case "audit":
+      return `audit ${value}`;
+    case "delta":
+      return `delta ${value}`;
+    default:
+      return token.replace(/_/g, " ");
+  }
+}
+
 export function MindPanel() {
+  const activeLayers = useAtlasStore((state) => state.activeLayers);
+  const selectedBrickId = useAtlasStore((state) => state.selectedBrickId);
   const focusedTemperatureCity = useAtlasStore((state) => state.focusedTemperatureCity);
   const attentionEvents = useAtlasStore((state) => state.mindAttentionEvents);
   const epistemicLayerFilter = useAtlasStore((state) => state.epistemicLayerFilter);
@@ -205,6 +248,9 @@ export function MindPanel() {
   const [p203Result, setP203Result] = useState<P203RuntimeAvailabilityCycleResult | null>(null);
   const [p204Result, setP204Result] = useState<P204DataQualityCycleResult | null>(null);
   const [recentLogs, setRecentLogs] = useState(() => getRecentDecisionLogs(8).slice().reverse());
+  const [correlationResult, setCorrelationResult] = useState<CorrelationResult>(() =>
+    getSignalCorrelations(getRecentDecisionLogs(80))
+  );
   const [orchestrationTrace, setOrchestrationTrace] = useState(() =>
     getRecentMindOrchestrationTrace(12).slice().reverse()
   );
@@ -250,6 +296,7 @@ export function MindPanel() {
 
   function syncPanelDiagnostics() {
     setRecentLogs(getRecentDecisionLogs(8).slice().reverse());
+    setCorrelationResult(getSignalCorrelations(getRecentDecisionLogs(80)));
     setOrchestrationTrace(getRecentMindOrchestrationTrace(12).slice().reverse());
     setCreditSnapshot(getCreditSystemSnapshot());
     setCreditLogs(getRecentCreditGateLogs(10).slice().reverse());
@@ -297,7 +344,11 @@ export function MindPanel() {
       context: {
         cityQuery: city,
         thresholdC,
-        forceRefresh: true
+        forceRefresh: true,
+        activeLayerIds: Object.entries(activeLayers)
+          .filter(([, isActive]) => Boolean(isActive))
+          .map(([layerId]) => layerId),
+        selectedBrickId: selectedBrickId ?? undefined
       }
     });
   }
@@ -314,7 +365,11 @@ export function MindPanel() {
         consecutiveFailures: runtimeFailures,
         lastSuccessAgeMin: runtimeAgeMin,
         runtimeSource: runtimeSourceInput.trim() || "atlas-vivant.runtime.temperature",
-        city: cityQuery.trim() || undefined
+        city: cityQuery.trim() || undefined,
+        activeLayerIds: Object.entries(activeLayers)
+          .filter(([, isActive]) => Boolean(isActive))
+          .map(([layerId]) => layerId),
+        selectedBrickId: selectedBrickId ?? undefined
       }
     });
   }
@@ -335,7 +390,11 @@ export function MindPanel() {
         sourceType: qualitySourceType || undefined,
         qualityIssueCode: qualityIssueCodeInput,
         fieldCityDeltaC: qualityDeltaC,
-        runtimeAvailable: parseTriStateBoolean(qualityRuntimeAvailableInput)
+        runtimeAvailable: parseTriStateBoolean(qualityRuntimeAvailableInput),
+        activeLayerIds: Object.entries(activeLayers)
+          .filter(([, isActive]) => Boolean(isActive))
+          .map(([layerId]) => layerId),
+        selectedBrickId: selectedBrickId ?? undefined
       }
     });
   }
@@ -346,6 +405,7 @@ export function MindPanel() {
     clearMindOrchestrationTrace();
     clearCreditSystemState();
     setRecentLogs([]);
+    setCorrelationResult(getSignalCorrelations([]));
     setOrchestrationTrace([]);
     setCreditSnapshot(getCreditSystemSnapshot());
     setCreditLogs([]);
@@ -685,6 +745,36 @@ export function MindPanel() {
               ))}
             </div>
           ) : null}
+
+          <div className="detail-card">
+            <h3>P5-01 Correlations probabilistes</h3>
+            <div className="detail-grid">
+              <span>Fenetres analysees: {correlationResult.contextCount}</span>
+              <span>Vocabulaire max/fenetre: {correlationResult.vocabularySize}</span>
+              <span>Relations detectees: {correlationResult.correlations.length}</span>
+            </div>
+            {correlationResult.correlations.length > 0 ? (
+              <div className="relation-list">
+                {correlationResult.correlations.slice(0, 8).map((correlation, index) => (
+                  <div key={`${correlation.pair[0]}|${correlation.pair[1]}|${index}`} className="relation-row">
+                    <strong>
+                      {correlationTokenLabel(correlation.pair[0])} ↔ {correlationTokenLabel(correlation.pair[1])}
+                    </strong>
+                    <small>
+                      Score probabiliste {(correlation.probabilityScore * 100).toFixed(0)}% | support{" "}
+                      {(correlation.support * 100).toFixed(0)}% | confiance {(correlation.confidence * 100).toFixed(0)}% | lift x
+                      {correlation.lift.toFixed(2)}
+                    </small>
+                    <small>co-occurences observees: {correlation.count}</small>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="timeline-note">
+                Pas assez d&apos;historique pour estimer des correlations robustes (lancer plusieurs cycles P2-01/P2-03/P2-04).
+              </div>
+            )}
+          </div>
 
           {orchestrationTrace.length > 0 ? (
             <div className="relation-list">

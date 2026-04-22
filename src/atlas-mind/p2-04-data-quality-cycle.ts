@@ -55,6 +55,22 @@ function readContextBoolean(context: Record<string, unknown> | undefined, key: s
   return typeof raw === "boolean" ? raw : null;
 }
 
+function readContextStringArray(context: Record<string, unknown> | undefined, key: string): string[] {
+  if (!context) {
+    return [];
+  }
+
+  const raw = context[key];
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
 function toIssueCode(value: string | null): DataQualityIssueCode {
   if (value === "city_missing") {
     return value;
@@ -164,6 +180,13 @@ function buildDecisionLogEntry(result: P204DataQualityCycleResult): DecisionLogE
     city: result.snapshot.city ?? "data-quality:unknown-city",
     cityId: result.snapshot.cityId,
     deltaC: result.snapshot.fieldCityDeltaC,
+    routeId: "p2-04.temperature-data-quality-cycle",
+    signalKind: result.signal.kind,
+    signalDomain: result.signal.domain,
+    sourceType: result.snapshot.sourceType,
+    ingressType: readContextString(result.signal.context, "ingressType"),
+    activeLayerIds: readContextStringArray(result.signal.context, "activeLayerIds").slice(0, 16),
+    selectedBrickId: readContextString(result.signal.context, "selectedBrickId"),
     anomalyThresholdC: DEFAULT_TEMPERATURE_ANOMALY_THRESHOLD_C,
     persistenceLevel: "none",
     persistenceCount: 0,
