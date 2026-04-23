@@ -133,6 +133,41 @@ Cette passe intermediaire vise surtout la stabilisation ergonomique et fonctionn
   - `npm run check:perf` OK (hors sandbox via `check:canon`)
   - `npm run check:canon` OK (hors sandbox)
 
+## Lot AV-11B fallback multi-source live (2026-04-23)
+
+- sources retenues:
+  - primaire: Open-Meteo
+  - secondaire live: MET Norway
+  - dernier filet: snapshot leger persistant (localStorage)
+- strategie active:
+  - tentative Open-Meteo en premier
+  - fallback live sur MET Norway si Open-Meteo indisponible
+  - si double echec live, runtime live invalide et bascule sur snapshot leger si present
+  - sinon fallback visuel local explicite
+- transparence UI:
+  - statut explicite de source active/fallback live/snapshot
+  - route affichee explicitement:
+    - `Route: Open-Meteo`
+    - `Route: Open-Meteo -> MET Norway`
+    - `Route: snapshot leger persistant`
+  - age du snapshot affiche quand snapshot utilise
+- implementation:
+  - `src/lib/temperature/temperature-data-source.ts`
+    - ajout `sourceStatus` (`primaryProvider`, `activeProvider`, `fallbackLiveActive`, `attemptedProviders`)
+    - suppression du maintien implicite d un cache live stale apres double echec provider
+    - ajout d options de simulation provider (`failOpenMeteo`, `failMetNorway`) pour validation scenario
+  - `src/modules/map/InteractiveGlobe.tsx`
+    - branchage options simulation via query (`tempFailOpenMeteo`, `tempFailMetNorway`)
+    - invalidation runtime live quand providers indisponibles (fallback snapshot effectif)
+    - rendu status source/route/snapshot age explicite
+- verification scenarios AV-11B (headless):
+  - A Open-Meteo OK: `Source active: Open-Meteo`
+  - B Open-Meteo KO / MET Norway OK: `Fallback live actif: MET Norway (Open-Meteo indisponible)`
+  - C Open-Meteo KO / MET Norway KO: `Dernier snapshot valide affiche (...)`
+  - D source affichee correctement selon scenario: OK
+- verification canonique:
+  - `npm run check:canon` OK (hors sandbox)
+
 ## Corrections apportees
 
 ### Globe

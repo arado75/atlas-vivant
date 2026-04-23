@@ -101,8 +101,16 @@ interface WeightedEstimate {
 
 export type TemperatureLiveProvider = "open-meteo" | "met-norway";
 
+export interface TemperatureRuntimeSourceStatus {
+  primaryProvider: TemperatureLiveProvider;
+  activeProvider: TemperatureLiveProvider;
+  fallbackLiveActive: boolean;
+  attemptedProviders: TemperatureLiveProvider[];
+}
+
 export interface TemperatureLayerRuntime {
   source: TemperatureLiveProvider;
+  sourceStatus: TemperatureRuntimeSourceStatus;
   fetchedAtMs: number;
   minTimeMs: number;
   maxTimeMs: number;
@@ -1150,6 +1158,7 @@ function buildLayerDataset(
 
 interface TemperatureFieldCache {
   provider: TemperatureLiveProvider;
+  sourceStatus: TemperatureRuntimeSourceStatus;
   fetchedAtMs: number;
   field: TemperatureField;
   citySeriesById: Map<string, TemperaturePointSeries>;
@@ -1161,6 +1170,25 @@ let inFlight: Promise<TemperatureFieldCache | null> | null = null;
 interface LoadTemperatureRuntimeOptions {
   forceRefresh?: boolean;
   onRefreshEvent?: (event: TemperatureRuntimeRefreshEvent) => void;
+  providerSimulation?: {
+    failOpenMeteo?: boolean;
+    failMetNorway?: boolean;
+  };
+}
+
+function isProviderForcedToFail(
+  provider: TemperatureLiveProvider,
+  simulation: LoadTemperatureRuntimeOptions["providerSimulation"]
+): boolean {
+  if (!simulation) {
+    return false;
+  }
+
+  if (provider === "open-meteo") {
+    return Boolean(simulation.failOpenMeteo);
+  }
+
+  return Boolean(simulation.failMetNorway);
 }
 
 export function isOpenMeteoTimeSupported(referenceMs: number, nowMs = Date.now()): boolean {
@@ -1189,7 +1217,6 @@ export async function loadTemperatureLayerRuntime(
 
   if (options.forceRefresh || !cache || nowMs - cache.fetchedAtMs >= CACHE_TTL_MS) {
     emitRefreshEvent("download", 0, "starting_download");
-    const staleCache = cache;
 
     if (!inFlight) {
       inFlight = (async () => {
@@ -1197,8 +1224,15 @@ export async function loadTemperatureLayerRuntime(
         let selectedProvider: TemperatureLiveProvider | null = null;
         let selectedField: TemperatureField | null = null;
         let selectedCitySeriesById = new Map<string, TemperaturePointSeries>();
+        const attemptedProviders: TemperatureLiveProvider[] = [];
 
         for (const provider of providers) {
+          attemptedProviders.push(provider);
+          if (isProviderForcedToFail(provider, options.providerSimulation)) {
+            emitRefreshEvent("download", 0, `provider_forced_failure_${provider}`);
+            continue;
+          }
+
           const isMetNorway = provider === "met-norway";
           const providerDetail = isMetNorway ? "met_norway" : "open_meteo";
           const fieldRequests = isMetNorway ? [] : buildFieldRequests(cityTemplates);
@@ -1292,8 +1326,16 @@ export async function loadTemperatureLayerRuntime(
           throw new Error("all_live_providers_unavailable");
         }
 
+        const sourceStatus: TemperatureRuntimeSourceStatus = {
+          primaryProvider: "open-meteo",
+          activeProvider: selectedProvider,
+          fallbackLiveActive: selectedProvider !== "open-meteo",
+          attemptedProviders
+        };
+
         const entry: TemperatureFieldCache = {
           provider: selectedProvider,
+          sourceStatus,
           fetchedAtMs: nowMs,
           field: selectedField,
           citySeriesById: selectedCitySeriesById
@@ -1309,8 +1351,8 @@ export async function loadTemperatureLayerRuntime(
     }
 
     const fetched = await inFlight;
-    if (!fetched && staleCache) {
-      cache = staleCache;
+    if (!fetched) {
+      cache = null;
     }
 
     if (!fetched && !cache) {
@@ -1331,6 +1373,7 @@ export async function loadTemperatureLayerRuntime(
   emitRefreshEvent("ready", 1, "published_snapshot");
   return {
     source: cache.provider,
+    sourceStatus: cache.sourceStatus,
     fetchedAtMs: cache.fetchedAtMs,
     minTimeMs: cache.field.minTimeMs,
     maxTimeMs: cache.field.maxTimeMs,
@@ -1342,6 +1385,11 @@ export async function loadTemperatureLayerRuntime(
     getTemperatureAnchoringDebug: cache.field.getTemperatureAnchoringDebug,
     getInterpolationDebug: cache.field.getInterpolationDebug
   };
+}
+
+export function resetTemperatureLayerRuntimeCache(): void {
+  cache = null;
+  inFlight = null;
 }
 
 

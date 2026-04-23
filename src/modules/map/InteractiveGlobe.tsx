@@ -34,6 +34,7 @@ import {
 import { buildTimeEngine } from "../../lib/time-engine";
 import {
   loadTemperatureLayerRuntime,
+  type TemperatureLiveProvider,
   type TemperatureLayerRuntime,
   type TemperatureRuntimeRefreshEvent,
   type TemperatureRuntimeRefreshPhase
@@ -565,6 +566,15 @@ function qualityModeLabel(mode: RenderQualityMode): string {
   }
 }
 
+function parseBooleanQueryFlag(value: string | null): boolean {
+  if (!value) {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+}
+
 function degradeTemperatureViewLevel(level: TemperatureViewLevel): TemperatureViewLevel {
   if (level === "local") {
     return "regional";
@@ -613,6 +623,43 @@ function formatRuntimeProvider(provider: TemperatureLayerRuntime["source"] | nul
   }
 
   return null;
+}
+
+function formatSnapshotAgeLabel(ageMinutes: number | null): string {
+  if (ageMinutes === null) {
+    return "--";
+  }
+
+  if (ageMinutes < 1) {
+    return "<1 min";
+  }
+
+  if (ageMinutes < 60) {
+    return `${ageMinutes} min`;
+  }
+
+  const hours = Math.floor(ageMinutes / 60);
+  const minutes = ageMinutes % 60;
+  return `${hours}h${minutes.toString().padStart(2, "0")}`;
+}
+
+function formatProviderRouteLabel(
+  sourceStatus: TemperatureLayerRuntime["sourceStatus"] | null,
+  runtimeProvider: TemperatureLiveProvider | null,
+  hasSnapshot: boolean
+): string {
+  if (runtimeProvider && sourceStatus) {
+    if (sourceStatus.fallbackLiveActive) {
+      return "Route: Open-Meteo -> MET Norway";
+    }
+    return "Route: Open-Meteo";
+  }
+
+  if (hasSnapshot) {
+    return "Route: snapshot leger persistant";
+  }
+
+  return "Route: fallback visuel local";
 }
 
 type BrickFamily = "wind" | "ocean" | "aviation" | "maritime" | "biosphere" | "health";
@@ -766,6 +813,24 @@ function shouldKeepEntity(
 }
 export function InteractiveGlobe() {
   const perfDebugEnabled = isPerfDebugEnabled();
+  const temperatureProviderSimulation = useMemo(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const query = new URLSearchParams(window.location.search);
+    const failOpenMeteo = parseBooleanQueryFlag(query.get("tempFailOpenMeteo"));
+    const failMetNorway = parseBooleanQueryFlag(query.get("tempFailMetNorway"));
+
+    if (!failOpenMeteo && !failMetNorway) {
+      return undefined;
+    }
+
+    return {
+      failOpenMeteo,
+      failMetNorway
+    };
+  }, []);
   const activeLayers = useAtlasStore((state) => state.activeLayers);
   const compareEnabled = useAtlasStore((state) => state.compareEnabled);
   const timeMode = useAtlasStore((state) => state.timeMode);
@@ -1326,6 +1391,7 @@ export function InteractiveGlobe() {
       try {
         const runtime = await loadTemperatureLayerRuntime(temperatureReferenceMs, temperatureCityTemplates, Date.now(), {
           forceRefresh,
+          providerSimulation: temperatureProviderSimulation,
           onRefreshEvent: (event: TemperatureRuntimeRefreshEvent) => {
             if (cancelled || runId !== temperatureRefreshRunRef.current) {
               return;
@@ -1352,10 +1418,14 @@ export function InteractiveGlobe() {
             applyTemperatureRuntime(runtime);
           }
         } else {
+          pendingRuntimeRef.current = null;
+          setTemperatureRuntime(null);
           setNextTemperatureRefreshAtMs(Date.now() + REALTIME_REFRESH_INTERVAL_MS);
         }
       } catch {
         if (!cancelled && runId === temperatureRefreshRunRef.current) {
+          pendingRuntimeRef.current = null;
+          setTemperatureRuntime(null);
           setTemperatureRefreshUi({
             phase: "error",
             progress: 1,
@@ -1376,7 +1446,7 @@ export function InteractiveGlobe() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [temperatureReferenceMs, temperatureCityTemplates]);
+  }, [temperatureReferenceMs, temperatureCityTemplates, temperatureProviderSimulation]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1438,6 +1508,8 @@ export function InteractiveGlobe() {
     (window as unknown as { __atlasTempDebug?: unknown }).__atlasTempDebug = {
       sampleCursorIso: new Date(temperatureSampleCursor).toISOString(),
       lastOpenMeteoRefreshIso: temperatureRuntime ? new Date(temperatureRuntime.fetchedAtMs).toISOString() : null,
+      activeProvider: temperatureRuntime?.source ?? null,
+      sourceRoute: temperatureRuntime?.sourceStatus ?? null,
       reportRequiredCities
     };
   }, [displayedTemperatureDataset, temperatureRuntime, temperatureSampleCursor, temperatureSampler]);
@@ -1666,10 +1738,22 @@ export function InteractiveGlobe() {
   };
 
   const runtimeProviderLabel = formatRuntimeProvider(temperatureRuntime?.source ?? null);
+  const snapshotAgeMinutes = temperatureLightSnapshot
+    ? Math.max(0, Math.floor((Date.now() - temperatureLightSnapshot.capturedAtMs) / 60000))
+    : null;
+  const runtimeStatusLabel = temperatureRuntime
+    ? temperatureRuntime.sourceStatus.fallbackLiveActive
+      ? "Fallback live actif: MET Norway (Open-Meteo indisponible)"
+      : `Source active: ${runtimeProviderLabel ?? "Open-Meteo"}`
+    : temperatureLightSnapshot
+      ? `Dernier snapshot valide affiche (${formatSnapshotAgeLabel(snapshotAgeMinutes)})`
+      : "Aucune source live disponible - fallback visuel local";
+  const runtimeRouteLabel = formatProviderRouteLabel(
+    temperatureRuntime?.sourceStatus ?? null,
+    temperatureRuntime?.source ?? null,
+    Boolean(temperatureLightSnapshot)
+  );
   const temperatureLegendStops = useMemo(() => getTemperatureLegendStops(), []);
-  const runtimeStatusLabel = runtimeProviderLabel
-    ? `Source live: ${runtimeProviderLabel}`
-    : "Source live indisponible - fallback local actif";
   const qualityStatusLabel =
     renderQualityMode === "auto"
       ? `Rendu ${qualityModeLabel(renderQualityMode)} (${autoEcoActive ? "eco actif" : "qualite standard"})`
@@ -1703,6 +1787,7 @@ export function InteractiveGlobe() {
     >
       <div className="globe-runtime-status" aria-live="polite">
         <span>{runtimeStatusLabel}</span>
+        <span>{runtimeRouteLabel}</span>
         <span>{formatRefreshPhaseLabel(temperatureRefreshUi)}</span>
         <span>{qualityStatusLabel}</span>
         <span>{interactionPerfLabel}</span>
