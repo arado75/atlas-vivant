@@ -168,6 +168,36 @@ Cette passe intermediaire vise surtout la stabilisation ergonomique et fonctionn
 - verification canonique:
   - `npm run check:canon` OK (hors sandbox)
 
+## Lot portabilite runners UI/perf sandbox (2026-04-23)
+
+- objectif:
+  - reduire les faux signaux `fail_environment` opaques en sandbox
+  - distinguer clairement `PASS` / `FAIL produit` / `FAIL environnement` / `SKIP environnement`
+- implementation:
+  - `scripts/checks/check-runner-utils.mjs`
+    - ajout classification detaillee (`classifyFailureInfo`, `classifyScriptRunDetailed`)
+    - ajout preflight spawn Node (`detectRunnerEnvironmentReadiness`)
+    - enrichissement des codes (`eperm`, `spawn_eperm`, etc.)
+  - `scripts/checks/run-ui-check.mjs`
+    - preflight environnement avant execution CDP
+    - statut `skip_environment` structure (raison/code/detail) quand spawn bloque
+  - `scripts/checks/run-perf-check.mjs`
+    - meme mecanisme `skip_environment` + metadata structurees
+  - `scripts/checks/check-ui-gate.mjs`
+    - gate non negatif en cas `skip_environment`/`fail_environment`
+    - message explicite "pas de verdict produit negatif"
+  - `scripts/checks/check-perf-gate.mjs`
+    - meme politique de gate que UI
+- effet:
+  - en sandbox restreint: checks UI/perf interpretes comme indisponibilite environnement, pas comme regression produit
+  - hors sandbox: execution complete des checks UI/perf conservee
+- verification:
+  - `npm run build` OK (sandbox)
+  - `npm run check:ui` OK, statut `skip_environment` en sandbox (`node_spawn_blocked`, `failureCode=eperm`)
+  - `npm run check:perf` OK, statut `skip_environment` en sandbox (`node_spawn_blocked`, `failureCode=eperm`)
+  - `npm run check:canon` KO en sandbox (vite/esbuild `spawn EPERM`)
+  - `npm run check:canon` OK hors sandbox (chaine complete PASS)
+
 ## Corrections apportees
 
 ### Globe

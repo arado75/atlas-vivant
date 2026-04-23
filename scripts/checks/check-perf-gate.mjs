@@ -107,13 +107,16 @@ async function main() {
   const failures = [];
   const runner = readRunnerArtifact();
 
-  if (runner?.status === "fail_environment") {
+  if (runner?.status === "skip_environment" || runner?.status === "fail_environment") {
+    const isSkipped = runner?.status === "skip_environment";
     const environmentResult = {
       ok: true,
-      status: "fail_environment",
+      status: runner.status,
       checkedAtIso: new Date().toISOString(),
       summary: {
-        reason: "Perf check bloque par environnement (CDP/spawn), pas de verdict produit negatif.",
+        reason: isSkipped
+          ? "Perf check saute par environnement (preflight spawn/CDP indisponible), pas de verdict produit negatif."
+          : "Perf check bloque par environnement (CDP/spawn), pas de verdict produit negatif.",
         runner
       },
       failures

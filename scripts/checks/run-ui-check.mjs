@@ -2,7 +2,8 @@ import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   TMP_DIR,
-  classifyScriptRun,
+  classifyScriptRunDetailed,
+  detectRunnerEnvironmentReadiness,
   readJsonIfExists,
   runNodeScript
 } from "./check-runner-utils.mjs";
@@ -33,19 +34,24 @@ function summarizeStatus(runs) {
     return "fail_environment";
   }
 
+  if (runs.some((run) => run.status === "skip_environment")) {
+    return "skip_environment";
+  }
+
   return "pass";
 }
 
 function runStep(step) {
   const runResult = runNodeScript(step.script, step.timeoutMs);
   const artifact = readJsonIfExists(step.artifact);
-  const status = classifyScriptRun(runResult, artifact);
+  const classification = classifyScriptRunDetailed(runResult, artifact);
 
   return {
     id: step.id,
     script: step.script,
     artifactPath: step.artifact,
-    status,
+    status: classification.status,
+    failureCode: classification.failureCode,
     exitCode: runResult.status,
     elapsedMs: runResult.elapsedMs,
     timedOut: runResult.timedOut,
@@ -56,13 +62,31 @@ function runStep(step) {
 }
 
 function main() {
-  const runs = UI_STEPS.map(runStep);
-  const status = summarizeStatus(runs);
+  const readiness = detectRunnerEnvironmentReadiness();
+  const runs = readiness.ready
+    ? UI_STEPS.map(runStep)
+    : UI_STEPS.map((step) => ({
+        id: step.id,
+        script: step.script,
+        artifactPath: step.artifact,
+        status: readiness.status,
+        failureCode: readiness.failureCode,
+        skipped: true,
+        skipReason: readiness.reason,
+        exitCode: null,
+        elapsedMs: 0,
+        timedOut: false,
+        errorMessage: readiness.detail,
+        artifactOk: null,
+        artifactError: null
+      }));
+  const status = readiness.ready ? summarizeStatus(runs) : readiness.status;
 
   const result = {
-    ok: status !== "fail_product",
+    ok: status !== "fail_product" && status !== "fail_environment",
     status,
     checkedAtIso: new Date().toISOString(),
+    runnerEnvironment: readiness,
     runs
   };
 

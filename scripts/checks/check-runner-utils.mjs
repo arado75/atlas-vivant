@@ -8,13 +8,13 @@ export const TMP_DIR = resolve(PROJECT_ROOT, ".tmp-run");
 mkdirSync(TMP_DIR, { recursive: true });
 
 const ENVIRONMENT_FAILURE_PATTERNS = [
-  /\bspawn\s+eperm\b/i,
-  /\beperm\b/i,
-  /\beacces\b/i,
-  /\benoent\b/i,
-  /\bcommand not found\b/i,
-  /\bnot recognized\b/i,
-  /\bpermission denied\b/i
+  { pattern: /\bspawn\s+eperm\b/i, code: "spawn_eperm" },
+  { pattern: /\beperm\b/i, code: "eperm" },
+  { pattern: /\beacces\b/i, code: "eacces" },
+  { pattern: /\benoent\b/i, code: "enoent" },
+  { pattern: /\bcommand not found\b/i, code: "command_not_found" },
+  { pattern: /\bnot recognized\b/i, code: "not_recognized" },
+  { pattern: /\bpermission denied\b/i, code: "permission_denied" }
 ];
 
 export function readJsonIfExists(relativePath) {
@@ -31,17 +31,30 @@ export function readJsonIfExists(relativePath) {
 }
 
 export function classifyFailureText(text) {
+  return classifyFailureInfo(text).status;
+}
+
+export function classifyFailureInfo(text) {
   if (!text || typeof text !== "string") {
-    return "fail_product";
+    return {
+      status: "fail_product",
+      failureCode: "unknown"
+    };
   }
 
-  for (const pattern of ENVIRONMENT_FAILURE_PATTERNS) {
+  for (const { pattern, code } of ENVIRONMENT_FAILURE_PATTERNS) {
     if (pattern.test(text)) {
-      return "fail_environment";
+      return {
+        status: "fail_environment",
+        failureCode: code
+      };
     }
   }
 
-  return "fail_product";
+  return {
+    status: "fail_product",
+    failureCode: "product_failure"
+  };
 }
 
 export function runNodeScript(relativeScriptPath, timeoutMs) {
@@ -65,8 +78,15 @@ export function runNodeScript(relativeScriptPath, timeoutMs) {
 }
 
 export function classifyScriptRun(runResult, artifactJson) {
+  return classifyScriptRunDetailed(runResult, artifactJson).status;
+}
+
+export function classifyScriptRunDetailed(runResult, artifactJson) {
   if (runResult.status === 0 && (!artifactJson || artifactJson.ok !== false)) {
-    return "pass";
+    return {
+      status: "pass",
+      failureCode: null
+    };
   }
 
   const rawMessage = [
@@ -78,5 +98,54 @@ export function classifyScriptRun(runResult, artifactJson) {
     .filter((entry) => typeof entry === "string" && entry.trim().length > 0)
     .join("\n");
 
-  return classifyFailureText(rawMessage);
+  const classification = classifyFailureInfo(rawMessage);
+  return {
+    status: classification.status,
+    failureCode: classification.failureCode
+  };
+}
+
+export function detectRunnerEnvironmentReadiness() {
+  const probe = spawnSync(process.execPath, ["-e", "process.stdout.write('runner_probe_ok')"], {
+    cwd: PROJECT_ROOT,
+    encoding: "utf8",
+    timeout: 5000
+  });
+
+  if (probe.status === 0) {
+    return {
+      ready: true,
+      status: "pass",
+      reason: null,
+      failureCode: null,
+      detail: null
+    };
+  }
+
+  const rawMessage = [
+    probe.error ? String(probe.error.message || probe.error) : "",
+    String(probe.stderr ?? ""),
+    String(probe.stdout ?? "")
+  ]
+    .filter((entry) => entry.trim().length > 0)
+    .join("\n");
+  const classification = classifyFailureInfo(rawMessage);
+
+  if (classification.status === "fail_environment") {
+    return {
+      ready: false,
+      status: "skip_environment",
+      reason: "node_spawn_blocked",
+      failureCode: classification.failureCode,
+      detail: rawMessage || "Node child-process spawn unavailable in this environment."
+    };
+  }
+
+  return {
+    ready: false,
+    status: "fail_product",
+    reason: "runner_preflight_failed",
+    failureCode: classification.failureCode,
+    detail: rawMessage || "Runner preflight failed."
+  };
 }
