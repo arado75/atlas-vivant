@@ -17,12 +17,25 @@ const CausalGraphPanel = lazy(() =>
 const OrionPanel = lazy(() =>
   import("./modules/orion/OrionPanel").then((module) => ({ default: module.OrionPanel }))
 );
+const ParisCityScene = lazy(() =>
+  import("./modules/map/ParisCityScene").then((module) => ({ default: module.ParisCityScene }))
+);
 
 export default function App() {
   const loadBricks = useAtlasStore((state) => state.loadBricks);
   const syncTimeWindowToNow = useAtlasStore((state) => state.syncTimeWindowToNow);
   const timeMode = useAtlasStore((state) => state.timeMode);
   const rightEdgeLockedToNow = useAtlasStore((state) => state.timeWindow.rightEdgeLockedToNow);
+  const [mapView, setMapView] = useState<"globe" | "paris3d">(() => {
+    if (typeof window === "undefined") {
+      return "globe";
+    }
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("view") === "paris3d") {
+      return "paris3d";
+    }
+    return window.localStorage.getItem("atlas.mapView.v1") === "paris3d" ? "paris3d" : "globe";
+  });
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -103,6 +116,21 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem("atlas.mapView.v1", mapView);
+    const nextUrl = new URL(window.location.href);
+    if (mapView === "paris3d") {
+      nextUrl.searchParams.set("view", "paris3d");
+    } else {
+      nextUrl.searchParams.delete("view");
+    }
+    window.history.replaceState(null, "", `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+  }, [mapView]);
+
   return (
     <div className="app-shell">
       <header className="app-header app-header-minimal">
@@ -121,8 +149,40 @@ export default function App() {
         </aside>
 
         <main className="main-column">
+          <section className="panel map-view-panel">
+            <div className="panel-header">
+              <div>
+                <span className="panel-eyebrow">Navigation spatiale</span>
+                <h2>Mode de vue</h2>
+              </div>
+              <span className="panel-metric">{mapView === "globe" ? "Planetaire" : "Locale 3D"}</span>
+            </div>
+            <div className="segmented-control segmented-control-wide">
+              <button
+                type="button"
+                className={mapView === "globe" ? "is-active" : ""}
+                onClick={() => setMapView("globe")}
+              >
+                Globe Atlas
+              </button>
+              <button
+                type="button"
+                className={mapView === "paris3d" ? "is-active" : ""}
+                onClick={() => setMapView("paris3d")}
+              >
+                Paris 3D
+              </button>
+            </div>
+          </section>
+
           <TimeWindowRail />
-          <InteractiveGlobe />
+          {mapView === "globe" ? (
+            <InteractiveGlobe />
+          ) : (
+            <Suspense fallback={<div className="panel panel-lite">Chargement Paris 3D...</div>}>
+              <ParisCityScene />
+            </Suspense>
+          )}
         </main>
 
         <aside className="sidebar right-sidebar">

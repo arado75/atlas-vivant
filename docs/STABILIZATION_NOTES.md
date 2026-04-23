@@ -198,6 +198,40 @@ Cette passe intermediaire vise surtout la stabilisation ergonomique et fonctionn
   - `npm run check:canon` KO en sandbox (vite/esbuild `spawn EPERM`)
   - `npm run check:canon` OK hors sandbox (chaine complete PASS)
 
+## Lot P6-01 Paris 3D OSM (demonstrateur fidele) (2026-04-24)
+
+- cadrage promesse:
+  - ce lot n est **pas** "Paris exact" centimetrique
+  - ce lot est "Paris 3D OSM / demonstrateur fidele" pour exploration urbaine fluide
+- implementation:
+  - `src/modules/map/ParisCityScene.tsx`
+    - nouvelle vue locale 2.5D (canvas) pour Paris
+    - navigation fluide (drag/zoom/rotation/inclinaison) + mode qualite (`auto`/`qualite`/`eco`)
+  - `src/modules/map/paris-3d-data.ts`
+    - ingestion OSM via Overpass (routes + batiments)
+    - normalisation typée (footprints, hauteur, area, bbox)
+    - fallback local synthetique si Overpass indisponible
+  - `src/App.tsx`
+    - switch de vue `Globe Atlas` / `Paris 3D`
+    - persistance locale du mode (`atlas.mapView.v1`) + URL `?view=paris3d`
+    - lazy-load de `ParisCityScene` (chunk dedie)
+  - `src/index.css`
+    - styles dedies au mode Paris 3D
+- limites explicites:
+  - dependance OSM/Overpass (couverture et disponibilite variables)
+  - hauteurs batiments parfois estimees quand metadonnees manquantes
+  - fallback local non geometrique exact en cas d indisponibilite live
+  - pas de precision LiDAR / photogrammetrie / centimetrique dans ce lot
+- impact perf/bundle:
+  - chunk dedie `ParisCityScene-*.js` (chargement a la demande)
+  - mode Globe protege par lazy-load (pas de dependance runtime imposee en mode planetaire)
+- verification:
+  - `npm run build` OK
+  - `npm run check:orchestrator` OK (hors sandbox)
+  - `npm run check:ui` OK (hors sandbox)
+  - `npm run check:perf` OK (hors sandbox)
+  - `npm run check:canon` OK (hors sandbox)
+
 ## Corrections apportees
 
 ### Globe
