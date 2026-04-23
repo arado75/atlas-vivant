@@ -102,7 +102,9 @@ Par defaut, Vite expose l'application sur [http://localhost:5173](http://localho
 
 Build et runtime local sont executables. Pour la cloture produit Phase 1, voir `docs/PHASE1_ATLAS_V0_STATUS.md` et `docs/TEMPERATURE_BRICK_LOCK_STATUS.md`.
 Pour la passe demo robuste (stabilisation/perf/packaging), voir `docs/DEMO_ROBUST_STATUS_2026-04-21.md`.
-Pour la completion P4-01 snapshots complets (avec etat Mind), voir `docs/P4_01_SNAPSHOT_COMPLETE_STATUS_2026-04-21.md`.
+Pour la completion P4-01 snapshots complets (avec etat Mind), voir `docs/P4_01_SNAPSHOT_COMPLETE_STATUS_2026-04-21.md`.	
 Pour le lot P4-02 + P5 (annotations/hypotheses, export briefing, navigation multi-echelles, couche epistemique), voir `docs/P4_02_P5_STATUS_2026-04-21.md`.
+Les checks durcis sont centralises dans `scripts/checks/` et sont executes via `npm run check:orchestrator`, `npm run check:ui`, `npm run check:perf`, `npm run check:canon`.
+`check:ui` et `check:perf` distinguent maintenant `fail_product` (regression verifiee) et `fail_environment` (execution CDP impossible).
 
 

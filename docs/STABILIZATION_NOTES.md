@@ -2,6 +2,137 @@
 
 Cette passe intermediaire vise surtout la stabilisation ergonomique et fonctionnelle avant la grande refonte visuelle.
 
+## Lot fiabilisation deterministe (2026-04-22)
+
+- checks durcis:
+  - `check:orchestrator` passe maintenant par `scripts/checks/check-orchestrator-gate.mjs`
+  - `check:orchestrator` compile a chaque run des bundles frais depuis `src/atlas-mind/examples/*` (plus de dependance aux bundles `.tmp-run` potentiellement obsoletes)
+  - le scenario P2-02 du gate orchestrateur utilise un ingress manuel deterministe (sans dependance live Open-Meteo)
+  - `check:ui` et `check:perf` conservent l execution des scripts CDP, puis appliquent des gates strictes via:
+    - `scripts/checks/run-ui-check.mjs`
+    - `scripts/checks/run-perf-check.mjs`
+    - `scripts/checks/check-ui-gate.mjs`
+    - `scripts/checks/check-perf-gate.mjs`
+  - `check:canon` appelle maintenant la chaine complete `build -> check:orchestrator -> check:ui -> check:perf`
+- cas critiques explicitement rejetes:
+  - incoherences de routage P2-02/P2-04/P2-05/P3-01/P3-02
+  - delta temperature manquant/non numerique sur ingress P2-02 deterministe
+  - regressions UI/perf (artefacts absents/trop anciens, seuils hors borne)
+ - distinction explicite des echecs:
+  - `fail_product`: regression produit verifiee
+ - `fail_environment`: execution CDP impossible (ex: `spawn EPERM`), sans conclure a une regression produit
+
+## Lot decompresse InteractiveGlobe (2026-04-22)
+
+- extraction incremental du bloc "snapshot temperature leger + persistance localStorage" hors du monolithe:
+  - nouveau module type: `src/modules/map/temperature-light-snapshot.ts`
+  - fonctions sorties de `InteractiveGlobe.tsx`:
+    - `buildTemperatureLightSnapshot`
+    - `persistTemperatureLightSnapshot`
+    - `readTemperatureLightSnapshot`
+    - `buildTemperatureDatasetFromLightSnapshot`
+  - types sortis du monolithe:
+    - `TemperatureLightSnapshot`
+    - `TemperatureLightSnapshotCity`
+- effet:
+  - reduction du volume de logique et parsing data dans `InteractiveGlobe.tsx`
+  - perimetre type elargi hors `@ts-nocheck` sans changement UX
+- verification:
+  - `npm run build` OK
+  - `npm run check:orchestrator` OK (hors sandbox)
+  - `npm run check:ui` OK (hors sandbox)
+  - `npm run check:perf` OK (hors sandbox)
+  - `npm run check:canon` OK (hors sandbox)
+- noyau globe:
+  - extraction du bloc interaction drag/zoom vers `src/modules/map/globe-interaction-core.ts` (fichier TypeScript type, sans `@ts-nocheck`)
+  - `InteractiveGlobe.tsx` conserve son rendu mais delegue maintenant les calculs critiques drag/zoom a ce module
+- hygiene:
+  - fichier backup retire du flux source actif:
+    - de `src/modules/map/InteractiveGlobe.tsx.bak.av11b-pre-repair`
+    - vers `.tmp-run/backups/InteractiveGlobe.tsx.bak.av11b-pre-repair`
+
+## Lot extraction hover/tooltip temperature (2026-04-22)
+
+- cible:
+  - extraction du bloc dense `temperatureHoverCandidates` hors `InteractiveGlobe.tsx`
+  - perimetre extrait: projection villes front-face + sampling temperature tooltip + delta + ranking distance
+- implementation:
+  - nouveau module type: `src/modules/map/temperature-hover-candidates.ts`
+  - nouvelle API pure:
+    - `buildTemperatureHoverCandidates(input)`
+  - `InteractiveGlobe.tsx` delegue maintenant la construction des candidats hover a ce module
+- effet:
+  - baisse du volume de logique metier temperature dans le monolithe
+  - bloc hover/tooltip rendu testable de facon isolee, sans changer l UX visible
+- verification:
+  - `npm run build` OK
+  - `npm run check:orchestrator` OK (hors sandbox)
+  - `npm run check:ui` OK (hors sandbox)
+  - `npm run check:perf` OK (hors sandbox)
+  - `npm run check:canon` OK (hors sandbox)
+
+## Lot extraction selection hover/pointeur (2026-04-23)
+
+- cible:
+  - extraction de la logique finale de selection hover depuis `InteractiveGlobe.tsx`
+  - perimetre extrait: probing pointeur, nearest match, radius par niveau de vue, decision clear/noop
+- implementation:
+  - nouveau module type: `src/modules/map/temperature-hover-interaction.ts`
+  - nouvelle API:
+    - `resolveTemperatureHoverFromPointer(input)`
+  - `InteractiveGlobe.tsx` garde uniquement l orchestration (counters perf + application du resultat)
+- effet:
+  - reduction de la logique dense dans le monolithe sur la partie interaction hover
+  - logique de decision hover rendue explicite et testable hors composant principal
+- verification:
+  - `npm run build` OK
+  - `npm run check:orchestrator` OK (hors sandbox via `check:canon`)
+  - `npm run check:ui` OK (hors sandbox via `check:canon`)
+  - `npm run check:perf` OK (hors sandbox via `check:canon`)
+  - `npm run check:canon` OK (hors sandbox)
+
+## Lot extraction orchestration hover (2026-04-23)
+
+- cible:
+  - extraction de l orchestration hover restante dans `InteractiveGlobe.tsx`
+  - perimetre: reconciliation de payload hover, update focus city, clear conditionnel par `expectedId`
+- implementation:
+  - nouveau module type: `src/modules/map/temperature-hover-state.ts`
+  - fonctions extraites:
+    - `resolveNextHoveredCity`
+    - `resolveHoverFocusUpdate`
+    - `clearHoveredCityIfExpected`
+  - `InteractiveGlobe.tsx` delegue maintenant `setTemperatureHover` et `scheduleTemperatureHoverClear` a ce module
+  - nettoyage: retrait des refs de clear timeout non utilisees
+- effet:
+  - reduction de la logique d etat hover dans le monolithe
+  - orchestration hover rendue explicite et testable hors composant principal
+- verification:
+  - `npm run build` OK
+  - `npm run check:orchestrator` OK (hors sandbox via `check:canon`)
+  - `npm run check:ui` OK (hors sandbox via `check:canon`)
+  - `npm run check:perf` OK (hors sandbox via `check:canon`)
+  - `npm run check:canon` OK (hors sandbox)
+
+## Lot reduction `@ts-nocheck` InteractiveGlobe (2026-04-23)
+
+- diagnostic:
+  - retrait de `@ts-nocheck` possible apres extraction des blocs critiques
+  - blocages restants limites a des reliquats `noUnusedLocals`/`noUnusedParameters`
+- corrections:
+  - suppression du `@ts-nocheck` global en tete de `InteractiveGlobe.tsx`
+  - nettoyage des imports/constantes/fonctions non utilises (sans impact UX)
+  - simplification d etat: `nextTemperatureRefreshAtMs` conserve en setter seul (suppression de lecture morte)
+- effet:
+  - plus de bypass global TypeScript sur le composant central
+  - verification de type active sur le fichier `InteractiveGlobe.tsx`
+- verification:
+  - `npm run build` OK
+  - `npm run check:orchestrator` OK (hors sandbox via `check:canon`)
+  - `npm run check:ui` OK (hors sandbox via `check:canon`)
+  - `npm run check:perf` OK (hors sandbox via `check:canon`)
+  - `npm run check:canon` OK (hors sandbox)
+
 ## Corrections apportees
 
 ### Globe

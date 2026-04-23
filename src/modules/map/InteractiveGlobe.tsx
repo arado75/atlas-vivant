@@ -1,10 +1,8 @@
-// @ts-nocheck
 import {
   useEffect,
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type KeyboardEventHandler,
   type MouseEventHandler,
   type PointerEventHandler,
@@ -18,7 +16,7 @@ import { layerCatalog } from "../../data/mockCatalog";
 import { mockLayerData } from "../../data/mockAtlasData";
 import { temperatureReferenceCities } from "../../data/temperatureReferenceCities";
 import { clamp } from "../../lib/formatters";
-import { getTemperatureLegendStops, intensityToTemperatureC, temperatureToColor } from "../../lib/temperature-scale";
+import { getTemperatureLegendStops, intensityToTemperatureC } from "../../lib/temperature-scale";
 import {
   isPerfDebugEnabled,
   isPerfFlagEnabled,
@@ -33,7 +31,7 @@ import {
   isRegionalTemperatureAnchorCity,
   resolveTemperatureViewLevel
 } from "../../lib/temperature-view";
-import { buildTimeEngine, formatWindowDate, formatWindowDuration } from "../../lib/time-engine";
+import { buildTimeEngine } from "../../lib/time-engine";
 import {
   loadTemperatureLayerRuntime,
   type TemperatureLayerRuntime,
@@ -49,6 +47,27 @@ import {
   renderTemperatureStreetLabels,
   renderTemperatureTooltip
 } from "./temperature-overlay";
+import { buildTemperatureHoverCandidates } from "./temperature-hover-candidates";
+import { resolveTemperatureHoverFromPointer } from "./temperature-hover-interaction";
+import {
+  clearHoveredCityIfExpected,
+  resolveHoverFocusUpdate,
+  resolveNextHoveredCity
+} from "./temperature-hover-state";
+import {
+  buildTemperatureDatasetFromLightSnapshot,
+  buildTemperatureLightSnapshot,
+  persistTemperatureLightSnapshot,
+  readTemperatureLightSnapshot,
+  type TemperatureLightSnapshot
+} from "./temperature-light-snapshot";
+import {
+  accumulateWheelFactor,
+  applyPendingDragRotation,
+  applyWheelZoom,
+  computePointerDragRotation,
+  createDragOrigin
+} from "./globe-interaction-core";
 import type {
   FlowFeature,
   HeatFeature,
@@ -56,8 +75,7 @@ import type {
   LonLat,
   PulseFeature,
   SceneProfileLite,
-  TrackFeature,
-  TemperatureSourceType
+  TrackFeature
 } from "../../types/atlas";
 
 const viewBoxWidth = 1040;
@@ -66,15 +84,11 @@ const baseScale = 300;
 const MIN_GLOBE_ZOOM = 0.66;
 const MAX_GLOBE_ZOOM = 42;
 const MAX_ROTATION_LAT = 82;
-const WHEEL_BURST_GAP_MS = 420;
-const WHEEL_BURST_RESET_MS = 520;
-const WHEEL_DIRECTION_DEADZONE = 0.35;
 const REALTIME_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 const DRAG_FRAME_MIN_ROTATION_DELTA = 0.03;
 const INTERACTION_FLOW_LIMIT = 22;
 const INTERACTION_TRACK_LIMIT = 18;
 const INTERACTION_PULSE_LIMIT = 26;
-const TEMPERATURE_LIGHT_SNAPSHOT_STORAGE_KEY = "atlas.temperature.lightSnapshot.v1";
 const TEMPERATURE_DEBUG_REQUIRED_CITY_IDS = [
   "paris",
   "london",
@@ -140,20 +154,6 @@ interface TemperatureRefreshUiState {
   progress: number;
   detail: string;
   updatedAtMs: number;
-}
-interface TemperatureLightSnapshotCity {
-  id: string;
-  label: string;
-  position: LonLat;
-  sourceType: TemperatureSourceType;
-  hourlyTimesMs: number[];
-  hourlyTempC: number[];
-}
-
-interface TemperatureLightSnapshot {
-  version: 1;
-  capturedAtMs: number;
-  cityTemperatures: TemperatureLightSnapshotCity[];
 }
 
 interface InteractionFrameSample {
@@ -327,145 +327,6 @@ function persistInvertYPreference(invertY: boolean): void {
   }
 }
 
-function buildTemperatureLightSnapshot(runtime: TemperatureLayerRuntime): TemperatureLightSnapshot | null {
-  const cityTemperatures = (runtime.dataset.cityTemperatures ?? [])
-    .filter((city) => {
-      if (!Array.isArray(city.hourlyTimesMs) || !Array.isArray(city.hourlyTempC)) {
-        return false;
-      }
-
-      if (city.hourlyTimesMs.length === 0 || city.hourlyTimesMs.length !== city.hourlyTempC.length) {
-        return false;
-      }
-
-      return true;
-    })
-    .map((city) => ({
-      id: city.id,
-      label: city.label,
-      position: city.position,
-      sourceType: city.sourceType ?? "fallback",
-      hourlyTimesMs: city.hourlyTimesMs!,
-      hourlyTempC: city.hourlyTempC!
-    }));
-
-  if (cityTemperatures.length === 0) {
-    return null;
-  }
-
-  return {
-    version: 1,
-    capturedAtMs: runtime.fetchedAtMs,
-    cityTemperatures
-  };
-}
-
-function persistTemperatureLightSnapshot(snapshot: TemperatureLightSnapshot): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(TEMPERATURE_LIGHT_SNAPSHOT_STORAGE_KEY, JSON.stringify(snapshot));
-  } catch {
-    // ignore storage write failures to keep runtime resilient.
-  }
-}
-
-function readTemperatureLightSnapshot(): TemperatureLightSnapshot | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    const raw = window.localStorage.getItem(TEMPERATURE_LIGHT_SNAPSHOT_STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
-
-    const parsed = JSON.parse(raw) as {
-      version?: unknown;
-      capturedAtMs?: unknown;
-      cityTemperatures?: unknown;
-    };
-
-    if (parsed.version !== 1 || typeof parsed.capturedAtMs !== "number" || !Array.isArray(parsed.cityTemperatures)) {
-      return null;
-    }
-
-    const cities: TemperatureLightSnapshotCity[] = parsed.cityTemperatures
-      .map((entry) => {
-        if (!entry || typeof entry !== "object") {
-          return null;
-        }
-
-        const value = entry as {
-          id?: unknown;
-          label?: unknown;
-          position?: unknown;
-          sourceType?: unknown;
-          hourlyTimesMs?: unknown;
-          hourlyTempC?: unknown;
-        };
-
-        if (
-          typeof value.id !== "string" ||
-          typeof value.label !== "string" ||
-          !Array.isArray(value.position) ||
-          value.position.length !== 2 ||
-          typeof value.position[0] !== "number" ||
-          typeof value.position[1] !== "number" ||
-          !Array.isArray(value.hourlyTimesMs) ||
-          !Array.isArray(value.hourlyTempC)
-        ) {
-          return null;
-        }
-
-        const hourlyTimesMs = value.hourlyTimesMs.filter((item): item is number => typeof item === "number");
-        const hourlyTempC = value.hourlyTempC.filter((item): item is number => typeof item === "number");
-
-        if (hourlyTimesMs.length === 0 || hourlyTimesMs.length !== hourlyTempC.length) {
-          return null;
-        }
-
-        const sourceType =
-          value.sourceType === "real" || value.sourceType === "interpolated" || value.sourceType === "fallback"
-            ? value.sourceType
-            : "fallback";
-
-        return {
-          id: value.id,
-          label: value.label,
-          position: [value.position[0], value.position[1]],
-          sourceType,
-          hourlyTimesMs,
-          hourlyTempC
-        };
-      })
-      .filter((entry): entry is TemperatureLightSnapshotCity => Boolean(entry));
-
-    if (cities.length === 0) {
-      return null;
-    }
-
-    return {
-      version: 1,
-      capturedAtMs: parsed.capturedAtMs,
-      cityTemperatures: cities
-    };
-  } catch {
-    return null;
-  }
-}
-
-function buildTemperatureDatasetFromLightSnapshot(snapshot: TemperatureLightSnapshot): LayerDataset {
-  return {
-    heat: [],
-    eventZones: [],
-    cityTemperatures: snapshot.cityTemperatures
-  };
-}
-
 function linePath(pathBuilder: ReturnType<typeof geoPath>, points: LonLat[]): string | null {
   if (points.length < 2) {
     return null;
@@ -603,27 +464,6 @@ function interpolateTemperatureFromHeatFeatures(position: LonLat, heatFeatures: 
   return aggregate.weighted / aggregate.sum;
 }
 
-function seriesRowsAroundCursor(
-  timesMs: number[] | undefined,
-  values: number[] | undefined,
-  cursorMs: number,
-  windowHours = 6
-): Array<{ iso: string; tempC: number; deltaMinutes: number }> {
-  if (!timesMs || !values || timesMs.length === 0 || values.length === 0 || timesMs.length !== values.length) {
-    return [];
-  }
-
-  const windowMs = windowHours * 60 * 60 * 1000;
-
-  return timesMs
-    .map((timeMs, index) => ({
-      iso: new Date(timeMs).toISOString(),
-      tempC: values[index],
-      deltaMinutes: Math.round((timeMs - cursorMs) / 60000)
-    }))
-    .filter((entry) => Math.abs(entry.deltaMinutes) <= (windowMs / 60000))
-    .slice(0, 17);
-}
 function samplePathPoint(path: LonLat[], index: number): LonLat {
   if (path.length === 0) {
     return [0, 0];
@@ -714,17 +554,6 @@ function layerOpacity(dataset: LayerDataset): number {
   return 0.9;
 }
 
-function modeLabel(mode: "paused" | "realtime" | "accelerated"): string {
-  switch (mode) {
-    case "paused":
-      return "Pause";
-    case "realtime":
-      return "Temps reel";
-    case "accelerated":
-      return "Accelere";
-  }
-}
-
 function qualityModeLabel(mode: RenderQualityMode): string {
   switch (mode) {
     case "auto":
@@ -774,19 +603,6 @@ function formatRefreshPhaseLabel(state: TemperatureRefreshUiState): string {
 
   return "En attente de synchronisation.";
 }
-function formatSnapshotAgeLabel(ageMinutes: number | null): string {
-  if (ageMinutes === null) {
-    return "--";
-  }
-
-  if (ageMinutes <= 0) {
-    return "<1 min";
-  }
-
-  return `${ageMinutes} min`;
-}
-
-
 function formatRuntimeProvider(provider: TemperatureLayerRuntime["source"] | null): string | null {
   if (provider === "open-meteo") {
     return "Open-Meteo";
@@ -981,7 +797,7 @@ export function InteractiveGlobe() {
     detail: "idle",
     updatedAtMs: Date.now()
   });
-  const [nextTemperatureRefreshAtMs, setNextTemperatureRefreshAtMs] = useState<number | null>(null);
+  const [, setNextTemperatureRefreshAtMs] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const viewStateRef = useRef<ViewState>(defaultView);
   const targetViewRef = useRef<ViewState>(defaultView);
@@ -999,9 +815,6 @@ export function InteractiveGlobe() {
   const dragOrigin = useRef<{ x: number; y: number; rotation: [number, number] } | null>(null);
   const dragFrameRef = useRef<number | null>(null);
   const pendingDragRotationRef = useRef<[number, number] | null>(null);
-  const hoverClearTimeoutRef = useRef<number | null>(null);
-  const hoverClearScheduledAtRef = useRef<number | null>(null);
-  const hoverEventTimestampRef = useRef<number | null>(null);
   const lastHoverCityIdRef = useRef<string | null>(null);
   const interactionActiveRef = useRef(false);
   const renderQualityModeRef = useRef<RenderQualityMode>("auto");
@@ -1183,82 +996,18 @@ export function InteractiveGlobe() {
   }, [baseVisibleLayers, performanceThrottleActive, hasFocusedLayer, selectedLayerId]);
   const temperatureLayerActive = Boolean(activeLayers.surface_temperature);
   const temperatureHoverCandidates = useMemo(() => {
-    if (!temperatureLayerActive) {
-      return [] as HoveredCityTemperature[];
-    }
-
-    const allCities = displayedTemperatureDataset.cityTemperatures ?? [];
-    const centerX = viewBoxWidth / 2;
-    const centerY = viewBoxHeight / 2 + 18;
-    const ranked = allCities
-      .map((city) => {
-        if (!isFrontFacing(city.position)) {
-          return null;
-        }
-
-        const projected = projection(city.position);
-        if (!projected) {
-          return null;
-        }
-
-        const distance = Math.hypot(projected[0] - centerX, projected[1] - centerY);
-        const hasCitySeries =
-          Array.isArray(city.hourlyTimesMs) &&
-          Array.isArray(city.hourlyTempC) &&
-          city.hourlyTimesMs.length > 0 &&
-          city.hourlyTimesMs.length === city.hourlyTempC.length;
-        const trendCursorDelta = Math.abs(temperatureSampleCursor) > 5000 ? 6 * 60 * 60 * 1000 : 1.2;
-        const fallbackInterpolated =
-          interpolateTemperatureFromHeatFeatures(
-            city.position,
-            displayedTemperatureDataset.heat ?? [],
-            temperatureSampleCursor
-          ) ?? 18;
-
-        const sampledTemperatureC = hasCitySeries
-          ? (sampleTemporalSeriesAtTime(city.hourlyTimesMs, city.hourlyTempC, temperatureSampleCursor) ??
-            city.hourlyTempC[city.hourlyTempC.length - 1])
-          : temperatureSampler
-            ? temperatureSampler(city.position[1], city.position[0], temperatureSampleCursor)
-            : fallbackInterpolated;
-        const previousTemperatureC = hasCitySeries
-          ? (sampleTemporalSeriesAtTime(city.hourlyTimesMs, city.hourlyTempC, temperatureSampleCursor - trendCursorDelta) ??
-            sampledTemperatureC)
-          : temperatureSampler
-            ? temperatureSampler(city.position[1], city.position[0], temperatureSampleCursor - trendCursorDelta)
-            : (interpolateTemperatureFromHeatFeatures(
-                city.position,
-                displayedTemperatureDataset.heat ?? [],
-                temperatureSampleCursor - trendCursorDelta
-              ) ?? sampledTemperatureC);
-        const deltaC = clamp(sampledTemperatureC - previousTemperatureC, -4.5, 4.5);
-        const sourceType = hasCitySeries
-          ? city.sourceType ?? (temperatureSampler ? "interpolated" : "fallback")
-          : temperatureSampler
-            ? "interpolated"
-            : "fallback";
-
-        return {
-          score: distance,
-          payload: {
-            id: city.id,
-            label: city.label,
-            x: projected[0],
-            y: projected[1],
-            temperatureC: sampledTemperatureC,
-            deltaC,
-            color: temperatureToColor(sampledTemperatureC),
-            kind: "city" as const,
-            sourceType
-          }
-        };
-      })
-      .filter((entry): entry is { score: number; payload: HoveredCityTemperature } => Boolean(entry))
-      .sort((left, right) => left.score - right.score)
-      .slice(0, 180)
-      .map((entry) => entry.payload);
-
-    return ranked;
+    return buildTemperatureHoverCandidates({
+      temperatureLayerActive,
+      displayedTemperatureDataset,
+      projection,
+      isFrontFacing,
+      temperatureSampler,
+      temperatureSampleCursor,
+      centerX: viewBoxWidth / 2,
+      centerY: viewBoxHeight / 2 + 18,
+      sampleTemporalSeriesAtTime,
+      interpolateTemperatureFromHeatFeatures
+    });
   }, [
     temperatureLayerActive,
     displayedTemperatureDataset,
@@ -1269,39 +1018,13 @@ export function InteractiveGlobe() {
   ]);
 
   const setTemperatureHover = (payload: HoveredCityTemperature | null) => {
-    setHoveredCity((current) => {
-      if (!payload && !current) {
-        return current;
-      }
+    setHoveredCity((current) => resolveNextHoveredCity(current, payload));
 
-      if (!payload || !current) {
-        return payload;
-      }
-
-      const sameKind = current.kind === payload.kind;
-      const sameId = current.id === payload.id;
-      const sameSource = current.sourceType === payload.sourceType;
-      const samePosition = Math.abs(current.x - payload.x) < 0.35 && Math.abs(current.y - payload.y) < 0.35;
-      const sameThermalValue =
-        Math.abs(current.temperatureC - payload.temperatureC) < 0.05 &&
-        Math.abs(current.deltaC - payload.deltaC) < 0.05;
-
-      return sameKind && sameId && sameSource && samePosition && sameThermalValue ? current : payload;
-    });
-
-    if (payload?.kind === "city") {
-      if (lastHoverCityIdRef.current !== payload.id) {
-        lastHoverCityIdRef.current = payload.id;
-        setFocusedTemperatureCity({
-          id: payload.id,
-          label: payload.label,
-          updatedAtMs: Date.now()
-        });
-      }
-      return;
+    const focusUpdate = resolveHoverFocusUpdate(payload, lastHoverCityIdRef.current, Date.now());
+    lastHoverCityIdRef.current = focusUpdate.nextLastHoverCityId;
+    if (focusUpdate.focusedCityUpdate) {
+      setFocusedTemperatureCity(focusUpdate.focusedCityUpdate);
     }
-
-    lastHoverCityIdRef.current = null;
   };
 
   const clearWheelFocus = () => {
@@ -1313,7 +1036,7 @@ export function InteractiveGlobe() {
   };
 
   const scheduleTemperatureHoverClear = (expectedId: string) => {
-    setHoveredCity((current) => (current?.id === expectedId ? null : current));
+    setHoveredCity((current) => clearHoveredCityIfExpected(current, expectedId));
   };
 
   const applyTemperatureRuntime = (runtime: TemperatureLayerRuntime) => {
@@ -1578,9 +1301,6 @@ export function InteractiveGlobe() {
       if (zoomInteractionTimeoutRef.current !== null) {
         window.clearTimeout(zoomInteractionTimeoutRef.current);
       }
-      if (hoverClearTimeoutRef.current !== null) {
-        window.clearTimeout(hoverClearTimeoutRef.current);
-      }
       if (dragFrameRef.current !== null) {
         window.cancelAnimationFrame(dragFrameRef.current);
       }
@@ -1778,11 +1498,7 @@ export function InteractiveGlobe() {
       return;
     }
 
-    dragOrigin.current = {
-      x: event.clientX,
-      y: event.clientY,
-      rotation: [...viewStateRef.current.rotation] as [number, number]
-    };
+    dragOrigin.current = createDragOrigin(event.clientX, event.clientY, viewStateRef.current.rotation);
     setIsDragInteractionActive(true);
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -1792,87 +1508,30 @@ export function InteractiveGlobe() {
       return;
     }
     perfInc("hover_probe_moves", 1);
+    const decision = resolveTemperatureHoverFromPointer({
+      clientX,
+      clientY,
+      svg,
+      viewBoxWidth,
+      viewBoxHeight,
+      candidates: temperatureHoverCandidates,
+      viewLevel: effectiveTemperatureViewLevel,
+      currentHoveredKind: hoveredCity?.kind ?? null
+    });
 
-    let cursorX = Number.NaN;
-    let cursorY = Number.NaN;
-    const ctm = typeof svg.getScreenCTM === "function" ? svg.getScreenCTM() : null;
-    if (ctm && typeof svg.createSVGPoint === "function") {
-      const svgPoint = svg.createSVGPoint();
-      svgPoint.x = clientX;
-      svgPoint.y = clientY;
-      const localPoint = svgPoint.matrixTransform(ctm.inverse());
-      cursorX = localPoint.x;
-      cursorY = localPoint.y;
-    } else {
-      const rect = svg.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) {
-        return;
-      }
-      cursorX = ((clientX - rect.left) * viewBoxWidth) / rect.width;
-      cursorY = ((clientY - rect.top) * viewBoxHeight) / rect.height;
-    }
-
-    if (!Number.isFinite(cursorX) || !Number.isFinite(cursorY)) {
+    if (decision.reason === "direct_match" && decision.payload) {
+      perfInc("hover_probe_direct_match", 1);
+      setTemperatureHover(decision.payload);
       return;
     }
 
-    if (typeof document !== "undefined") {
-      const buttonGroups = Array.from(document.querySelectorAll<SVGGElement>("g[role='button'][aria-label]"));
-      let pointedByProximity: SVGGElement | null = null;
-      let pointedDistance = Number.POSITIVE_INFINITY;
-      for (const group of buttonGroups) {
-        const rect = group.getBoundingClientRect();
-        const centerX = rect.left + rect.width / 2;
-        const centerY = rect.top + rect.height / 2;
-        const distance = Math.hypot(centerX - clientX, centerY - clientY);
-        if (distance < pointedDistance) {
-          pointedDistance = distance;
-          pointedByProximity = group;
-        }
-      }
-      const pointedElement = document.elementFromPoint(clientX, clientY);
-      const pointedGroup =
-        (pointedByProximity && pointedDistance <= 44 ? pointedByProximity : null) ??
-        pointedElement?.closest?.("g[role='button'][aria-label]") ??
-        null;
-      const pointedLabel = pointedGroup?.getAttribute?.("aria-label")?.trim();
-      if (pointedLabel && pointedLabel.length > 0) {
-        const pointedToken = pointedLabel.split(/\s+/)[0]?.toLowerCase() ?? "";
-        if (pointedToken.length > 0) {
-          const directMatch = temperatureHoverCandidates.find(
-            (city) =>
-              city.label.toLowerCase().startsWith(pointedToken) ||
-              city.label.toLowerCase().includes(pointedToken) ||
-              pointedToken.startsWith(city.label.toLowerCase())
-          );
-          if (directMatch) {
-            perfInc("hover_probe_direct_match", 1);
-            setTemperatureHover(directMatch);
-            return;
-          }
-        }
-      }
-    }
-
-    let nearest: HoveredCityTemperature | null = null;
-    let nearestDistance = Number.POSITIVE_INFINITY;
-
-    for (const city of temperatureHoverCandidates) {
-      const distance = Math.hypot(city.x - cursorX, city.y - cursorY);
-      if (distance < nearestDistance) {
-        nearestDistance = distance;
-        nearest = city;
-      }
-    }
-
-    const hoverRadius = effectiveTemperatureViewLevel === "local" ? 16 : 13;
-    if (nearest && nearestDistance <= hoverRadius) {
+    if (decision.reason === "nearest_match" && decision.payload) {
       perfInc("hover_probe_nearest_match", 1);
-      setTemperatureHover(nearest);
+      setTemperatureHover(decision.payload);
       return;
     }
 
-    if (hoveredCity?.kind === "city") {
+    if (decision.reason === "clear") {
       perfInc("hover_probe_clear", 1);
       setTemperatureHover(null);
     }
@@ -1885,14 +1544,14 @@ export function InteractiveGlobe() {
     }
 
     event.preventDefault();
-    const dragScale = 0.18 / Math.max(0.9, viewStateRef.current.zoom * 0.75);
-    const deltaX = event.clientX - dragOrigin.current.x;
-    const deltaY = event.clientY - dragOrigin.current.y;
-    const verticalDelta = invertYDrag ? -deltaY : deltaY;
-    const nextRotation: [number, number] = [
-      dragOrigin.current.rotation[0] + deltaX * dragScale,
-      clamp(dragOrigin.current.rotation[1] + verticalDelta * dragScale, -MAX_ROTATION_LAT, MAX_ROTATION_LAT)
-    ];
+    const nextRotation = computePointerDragRotation({
+      dragOrigin: dragOrigin.current,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      zoom: viewStateRef.current.zoom,
+      invertY: invertYDrag,
+      maxRotationLat: MAX_ROTATION_LAT
+    });
 
     pendingDragRotationRef.current = nextRotation;
     if (dragFrameRef.current === null) {
@@ -1904,19 +1563,7 @@ export function InteractiveGlobe() {
           return;
         }
 
-        setViewState((current) => {
-          const delta =
-            Math.abs(current.rotation[0] - pendingRotation[0]) +
-            Math.abs(current.rotation[1] - pendingRotation[1]);
-          if (delta < DRAG_FRAME_MIN_ROTATION_DELTA) {
-            return current;
-          }
-
-          return {
-            ...current,
-            rotation: pendingRotation
-          };
-        });
+        setViewState((current) => applyPendingDragRotation(current, pendingRotation, DRAG_FRAME_MIN_ROTATION_DELTA));
       });
     }
   };
@@ -1944,21 +1591,13 @@ export function InteractiveGlobe() {
 
   const onWheel: WheelEventHandler<SVGSVGElement> = (event) => {
     event.preventDefault();
-    const zoomFactor = Math.exp(-event.deltaY * 0.0014);
-    pendingWheelFactorRef.current = clamp(pendingWheelFactorRef.current * zoomFactor, 0.62, 1.62);
+    pendingWheelFactorRef.current = accumulateWheelFactor(pendingWheelFactorRef.current, event.deltaY, 0.62, 1.62);
     if (wheelFrameRef.current === null) {
       wheelFrameRef.current = window.requestAnimationFrame(() => {
         wheelFrameRef.current = null;
         const factor = pendingWheelFactorRef.current;
         pendingWheelFactorRef.current = 1;
-        if (!Number.isFinite(factor) || Math.abs(factor - 1) < 0.001) {
-          return;
-        }
-
-        setViewState((current) => ({
-          ...current,
-          zoom: clamp(current.zoom * factor, MIN_GLOBE_ZOOM, MAX_GLOBE_ZOOM)
-        }));
+        setViewState((current) => applyWheelZoom(current, factor, MIN_GLOBE_ZOOM, MAX_GLOBE_ZOOM));
       });
     }
     setIsZoomInteractionActive(true);
@@ -2133,11 +1772,6 @@ export function InteractiveGlobe() {
             dragFrameRef.current = null;
           }
           clearWheelFocus();
-          if (hoverClearTimeoutRef.current !== null) {
-            window.clearTimeout(hoverClearTimeoutRef.current);
-            hoverClearTimeoutRef.current = null;
-            hoverClearScheduledAtRef.current = null;
-          }
           setHoveredCity(null);
         }}
         onFocus={() => setGlobeHasFocus(true)}

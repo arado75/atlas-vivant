@@ -40,9 +40,8 @@ export async function runP202OrchestratorCheck() {
     source: "atlas-vivant.temperature",
     createdAtMs: Date.now(),
     context: {
-      cityQuery: "Paris",
-      thresholdC: 10,
-      forceRefresh: true
+      signal: buildManualSignal("Paris", 3.2),
+      thresholdC: 2
     }
   };
 

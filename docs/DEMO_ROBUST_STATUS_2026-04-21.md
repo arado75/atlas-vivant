@@ -24,6 +24,10 @@
   - `npm run demo:stabilize`
   - `npm run demo:package`
   - generation d un dossier `demo-package/<name>-demo-<timestamp>/`
+- Checks:
+  - garde-fous explicites ajoutes dans `scripts/checks/`
+  - `check:orchestrator` compile ses checks depuis `src/atlas-mind/examples/*` et valide routes/credit/tribunal en mode deterministe
+  - `check:ui` et `check:perf` passent par un runner de classification (`fail_product` vs `fail_environment`) avant gate PASS/FAIL
 
 ## Commandes recommandees
 
